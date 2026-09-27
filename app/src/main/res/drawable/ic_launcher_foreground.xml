@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- White rounded-square notepad silhouette with 3 circular spiral-binding notches on left edge -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 36,28 L 72,28 A 6,6 0 0 1 78,34 L 78,68 L 66,80 L 36,80 A 6,6 0 0 1 30,74 L 30,69.2 A 3.2,3.2 0 0 1 30,62.8 L 30,57.2 A 3.2,3.2 0 0 1 30,50.8 L 30,45.2 A 3.2,3.2 0 0 1 30,38.8 L 30,34 A 6,6 0 0 1 36,28 Z" />
+    <!-- Folded page corner at bottom-right (light blue-white triangle) -->
+    <path
+        android:fillColor="#D0E2FF"
+        android:pathData="M 66,80 L 78,68 L 66,68 Z" />
+    <!-- Crease line along fold -->
+    <path
+        android:strokeColor="#B4CDFA"
+        android:strokeWidth="0.8"
+        android:pathData="M 66,80 L 78,68" />
+    <!-- Spiral binding wire loops on left edge notches -->
+    <path
+        android:strokeColor="#B0C8E8"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M 32,40 C 25.5,40 25.5,44 32,44" />
+    <path
+        android:strokeColor="#B0C8E8"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M 32,52 C 25.5,52 25.5,56 32,56" />
+    <path
+        android:strokeColor="#B0C8E8"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M 32,64 C 25.5,64 25.5,68 32,68" />
+</vector>
