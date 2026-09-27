@@ -2,7 +2,13 @@ name: Build Debug APK
 
 on:
   push:
+    branches: [ "**" ]
+    tags:
+      - 'v*'
   pull_request:
+
+permissions:
+  contents: write
 
 jobs:
   build-debug:
@@ -32,3 +38,15 @@ jobs:
         with:
           name: MessNote-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Prepare Release APK asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: cp app/build/outputs/apk/debug/app-debug.apk "MessNote-${{ github.ref_name }}-debug.apk"
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: MessNote-${{ github.ref_name }}-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
