@@ -191,8 +191,8 @@ fun parseMarkdownBackticks(rawText: String): Pair<String, List<TextSpan>> {
 fun buildMonospaceAnnotatedString(
     text: String,
     spans: List<TextSpan>,
-    monoColor: Color = Color(0xFF42A5F5), // Bright blue / active accent #42A5F5
-    monoBackground: Color = Color(0xFF0D1824) // Monospace background #0D1824
+    monoColor: Color,
+    monoBackground: Color
 ): AnnotatedString {
     if (text.isEmpty()) return AnnotatedString("")
     val validSpans = normalizeSpans(text.length, spans)

@@ -38,21 +38,11 @@ data class NoteItem(
     var title: String? = null,
     var fieldItems: MutableList<FieldValueEntry> = mutableListOf(),
     var listItems: MutableList<ListRowEntry> = mutableListOf(),
-    var field: String? = null,
-    var value: String? = null,
     var favorite: Boolean = false
 )
 
 fun NoteItem.getSortedFieldItems(): List<FieldValueEntry> {
-    return if (fieldItems.isNotEmpty()) {
-        fieldItems.sortedBy { it.insertionOrder }
-    } else if (field != null && value != null) {
-        listOf(FieldValueEntry(field = field!!, value = value!!, insertionOrder = 0))
-    } else if (field != null || value != null) {
-        listOf(FieldValueEntry(field = field ?: "", value = value ?: "", insertionOrder = 0))
-    } else {
-        emptyList()
-    }
+    return fieldItems.sortedBy { it.insertionOrder }
 }
 
 fun NoteItem.getSortedListItems(): List<ListRowEntry> {
@@ -105,8 +95,6 @@ fun filterNotes(
             note.fieldItems.any {
                 it.field.contains(q, ignoreCase = true) || it.value.contains(q, ignoreCase = true)
             } ||
-            (note.field?.contains(q, ignoreCase = true) == true) ||
-            (note.value?.contains(q, ignoreCase = true) == true) ||
             note.text.contains(q, ignoreCase = true)
         } else if (note.type == NoteType.LIST) {
             (note.title?.contains(q, ignoreCase = true) == true) ||
@@ -135,8 +123,6 @@ fun favoritesFor(
             note.fieldItems.any {
                 it.field.contains(q, ignoreCase = true) || it.value.contains(q, ignoreCase = true)
             } ||
-            (note.field?.contains(q, ignoreCase = true) == true) ||
-            (note.value?.contains(q, ignoreCase = true) == true) ||
             note.text.contains(q, ignoreCase = true)
         } else if (note.type == NoteType.LIST) {
             (note.title?.contains(q, ignoreCase = true) == true) ||
@@ -148,4 +134,35 @@ fun favoritesFor(
             note.text.contains(q, ignoreCase = true)
         }
     }
+}
+
+/**
+ * Orders notes from newest to oldest by [NoteItem.createdAt].
+ * For ties (equal createdAt), notes that appear later in the stored/input list
+ * are ordered first (later-stored first).
+ *
+ * This pure function returns a newly ordered list and does not mutate the input list.
+ */
+fun orderNotesNewestFirst(notes: List<NoteItem>): List<NoteItem> {
+    return notes.mapIndexed { index, note -> index to note }
+        .sortedWith(
+            compareByDescending<Pair<Int, NoteItem>> { it.second.createdAt }
+                .thenByDescending { it.first }
+        )
+        .map { it.second }
+}
+
+fun getDisplayedNotes(
+    notes: List<NoteItem>,
+    filter: NoteFilter,
+    searchQuery: String = ""
+): List<NoteItem> {
+    return orderNotesNewestFirst(filterNotes(notes, filter, searchQuery))
+}
+
+fun getDisplayedFavorites(
+    notes: List<NoteItem>,
+    query: String = ""
+): List<NoteItem> {
+    return orderNotesNewestFirst(favoritesFor(notes, query))
 }

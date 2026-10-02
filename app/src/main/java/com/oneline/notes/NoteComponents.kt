@@ -1,6 +1,5 @@
 package com.oneline.notes
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -17,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.OffsetMapping
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import com.oneline.notes.ui.theme.*
 import kotlinx.coroutines.launch
@@ -214,7 +216,7 @@ fun MultiSelectHeader(
 fun StarIcon(
     isFavorite: Boolean,
     modifier: Modifier = Modifier,
-    tint: Color = Color.White,
+    tint: Color = TextPrimary,
     contentDescription: String? = null
 ) {
     val semanticsModifier = if (contentDescription != null) {
@@ -303,7 +305,65 @@ fun StarIcon(
 val HeaderRowHeight = 64.dp
 
 @Composable
+private fun ThemeModeToggle(
+    isDarkTheme: Boolean,
+    onToggle: () -> Unit
+) {
+    val progress = LocalThemeTransitionProgress.current
+    val thumbOffset = lerp(28.dp, 4.dp, progress)
+
+    Surface(
+        shape = CircleShape,
+        color = SurfaceCard,
+        border = BorderStroke(1.dp, BorderSubtle),
+        modifier = Modifier
+            .width(56.dp)
+            .height(34.dp)
+            .toggleable(
+                value = isDarkTheme,
+                role = Role.Switch,
+                onValueChange = { onToggle() }
+            )
+            .semantics {
+                contentDescription = if (isDarkTheme) "Dark theme enabled" else "Light theme enabled"
+            }
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Surface(
+                shape = CircleShape,
+                color = PrimaryBlue,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset(x = thumbOffset)
+                    .size(24.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "☀︎",
+                        color = OnAccent,
+                        fontSize = 14.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.graphicsLayer { alpha = progress }
+                    )
+                    Text(
+                        text = "☾︎",
+                        color = OnAccent,
+                        fontSize = 14.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.graphicsLayer { alpha = 1f - progress }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun NormalHeader(
+    isDarkTheme: Boolean,
+    onThemeToggle: () -> Unit,
     onSearchTrigger: () -> Unit,
     onFavoritesClick: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -316,13 +376,22 @@ fun NormalHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            text = "Messy Note",
-            fontWeight = FontWeight.Medium,
-            fontSize = 18.sp,
-            color = TextPrimary,
-            modifier = Modifier.weight(1f)
-        )
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Messy Note",
+                fontWeight = FontWeight.Medium,
+                fontSize = 18.sp,
+                color = TextPrimary
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            ThemeModeToggle(
+                isDarkTheme = isDarkTheme,
+                onToggle = onThemeToggle
+            )
+        }
 
         // Top Right: Header Star & Search Trigger Button
         Row(
@@ -354,7 +423,7 @@ fun NormalHeader(
                 Icon(
                     painter = painterResource(R.drawable.ic_search),
                     contentDescription = "Search notes",
-                    tint = Color.White,
+                    tint = TextPrimary,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -413,7 +482,7 @@ fun FavoritesHeader(
             Icon(
                 painter = painterResource(R.drawable.ic_search),
                 contentDescription = "Search favorites",
-                tint = Color.White,
+                tint = TextPrimary,
                 modifier = Modifier.size(24.dp)
             )
         }
@@ -518,7 +587,7 @@ fun SearchBarHeader(
 // =============================================================================
 // Home Content Filter Control: [ All ] [ Notes ] [ Fields-Values ]
 // =============================================================================
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HomeFilterControl(
     selectedFilter: NoteFilter,
@@ -526,16 +595,17 @@ fun HomeFilterControl(
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    val filters = NoteFilter.entries
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .horizontalScroll(scrollState)
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween, Alignment.Start),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        NoteFilter.entries.forEach { filter ->
+        filters.forEachIndexed { index, filter ->
             val isSelected = selectedFilter == filter
             val bringIntoViewRequester = remember { BringIntoViewRequester() }
 
@@ -545,62 +615,41 @@ fun HomeFilterControl(
                 }
             }
 
-            val chipScale by animateFloatAsState(
-                targetValue = if (isSelected) 1.03f else 1f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMedium
-                ),
-                label = "filterChipScale"
-            )
-            val chipBgColor by animateColorAsState(
-                targetValue = if (isSelected) PrimaryBlue else SurfaceCard,
-                animationSpec = spring(stiffness = Spring.StiffnessMedium),
-                label = "filterChipBg"
-            )
-            val chipBorderColor by animateColorAsState(
-                targetValue = if (isSelected) BrightBlue else BorderSubtle,
-                animationSpec = spring(stiffness = Spring.StiffnessMedium),
-                label = "filterChipBorder"
-            )
-            val chipShape = CircleShape
+            val shapes = when (index) {
+                0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                filters.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+            }
 
-            Surface(
-                shape = chipShape,
-                color = chipBgColor,
-                border = BorderStroke(1.dp, chipBorderColor),
-                shadowElevation = if (isSelected) 3.dp else 0.dp,
+            ToggleButton(
+                checked = isSelected,
+                onCheckedChange = { onFilterSelected(filter) },
+                shapes = shapes,
+                colors = ToggleButtonDefaults.toggleButtonColors(
+                    containerColor = SurfaceCard,
+                    contentColor = TextSecondary,
+                    checkedContainerColor = PrimaryBlue,
+                    checkedContentColor = OnAccent
+                ),
+                border = BorderStroke(1.dp, if (isSelected) BrightBlue else BorderSubtle),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
                 modifier = Modifier
                     .height(44.dp)
-                    .graphicsLayer {
-                        scaleX = chipScale
-                        scaleY = chipScale
-                    }
-                    .clip(chipShape)
-                    .clickable {
-                        onFilterSelected(filter)
-                    }
                     .bringIntoViewRequester(bringIntoViewRequester)
             ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .padding(horizontal = 24.dp)
-                ) {
-                    Text(
-                        text = filter.label,
-                        color = if (isSelected) Color.White else TextSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
+                Text(
+                    text = filter.label,
+                    fontFamily = GoogleSans,
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
     }
 }
+
 
 // =============================================================================
 // Interactive Swipeable Snackbar with Rounded Borders (Dismiss on swipe left or right)
@@ -828,7 +877,7 @@ fun NotesComposer(
                         Icon(
                             painter = painterResource(R.drawable.ic_send),
                             contentDescription = "Send note",
-                            tint = Color.White,
+                            tint = OnAccent,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -944,7 +993,7 @@ fun NotesList(
                                     Icon(
                                         painter = painterResource(R.drawable.ic_check),
                                         contentDescription = "Selected",
-                                        tint = Color.White,
+                                        tint = OnAccent,
                                         modifier = Modifier.size(15.dp)
                                     )
                                 }

@@ -8,19 +8,21 @@ import org.junit.Test
 class FavoritesTest {
 
     @Test
-    fun testJsonWithNoFavoriteFieldParsesAsFalse() {
-        val legacyJson = """
+    fun testJsonWithNoFavoriteFlagParsesAsFalse() {
+        val json = """
             [
-                {"id":"note1","text":"Old note 1","createdAt":1000,"type":"NORMAL"},
-                {"id":"note2","text":"Old note 2","createdAt":2000,"type":"FIELD_VALUE","field":"Host","value":"localhost"}
+                {"id":"note1","text":"Note 1","createdAt":1000,"type":"NORMAL"},
+                {"id":"note2","text":"","createdAt":2000,"type":"FIELD_VALUE","items":[{"field":"Host","value":"localhost","insertionOrder":0}]}
             ]
         """.trimIndent()
 
-        val result = parseNotesFromJson(legacyJson)
+        val result = parseNotesFromJson(json)
         assertEquals(2, result.notes.size)
         assertFalse(result.hadErrors)
         assertFalse(result.notes[0].favorite)
         assertFalse(result.notes[1].favorite)
+        assertEquals("Host", result.notes[1].fieldItems[0].field)
+        assertEquals("localhost", result.notes[1].fieldItems[0].value)
     }
 
     @Test
@@ -85,8 +87,6 @@ class FavoritesTest {
             text = "Server = apple.com",
             type = NoteType.FIELD_VALUE,
             title = "Apple Servers",
-            field = "Server",
-            value = "apple.com",
             fieldItems = mutableListOf(FieldValueEntry(field = "Server", value = "apple.com")),
             favorite = true
         )
@@ -101,8 +101,7 @@ class FavoritesTest {
             text = "Database = postgres",
             type = NoteType.FIELD_VALUE,
             title = "DB",
-            field = "Database",
-            value = "postgres",
+            fieldItems = mutableListOf(FieldValueEntry(field = "Database", value = "postgres")),
             favorite = false
         )
 

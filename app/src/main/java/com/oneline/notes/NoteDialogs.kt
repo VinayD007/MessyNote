@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +43,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalTextToolbar
@@ -365,7 +368,7 @@ private fun DraggableScrollbar(
                 .width(4.dp)
                 .height(with(density) { thumbHeightPx.toDp() })
                 .background(
-                    color = Color.White.copy(alpha = 0.35f),
+                    color = TextSecondary.copy(alpha = 0.45f),
                     shape = RoundedCornerShape(2.dp)
                 )
         )
@@ -375,8 +378,8 @@ private fun DraggableScrollbar(
 @OptIn(ExperimentalLayoutApi::class)
 private data class PartialCopyPairItem(
     val pairIndex: Int,
-    val fieldWords: List<Pair<Int, String>>,
-    val valueWords: List<Pair<Int, String>>
+    val fieldWords: List<Pair<Int, PartialCopyWord>>,
+    val valueWords: List<Pair<Int, PartialCopyWord>>
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -398,8 +401,8 @@ fun PartialCopyDialog(
             val pairs = note.getSortedFieldItems()
             var globalIdx = 0
             pairs.mapIndexed { idx, p ->
-                val fWords = p.field.split(Regex("\\s+")).filter { it.isNotBlank() }
-                val vWords = p.value.split(Regex("\\s+")).filter { it.isNotBlank() }
+                val fWords = tokenizeForPartialCopy(p.field)
+                val vWords = tokenizeForPartialCopy(p.value)
                 val fItems = fWords.map { Pair(globalIdx++, it) }
                 val vItems = vWords.map { Pair(globalIdx++, it) }
                 PartialCopyPairItem(
@@ -413,19 +416,19 @@ fun PartialCopyDialog(
         }
     }
 
-    val words = remember(note, pairWordItems) {
+    val words: List<PartialCopyWord> = remember(note, pairWordItems) {
         if (isFieldValue) {
             pairWordItems.flatMap { it.fieldWords + it.valueWords }.map { it.second }
         } else if (isList) {
             emptyList()
         } else {
-            note.text.split(Regex("\\s+")).filter { it.isNotBlank() }
+            tokenizeForPartialCopy(note.text)
         }
     }
     val selectedIndices = remember { mutableStateListOf<Int>() }
     var selectionVersion by remember { mutableStateOf(0) }
 
-    val fullText = remember(words) { words.joinToString(" ") }
+    val fullText = remember(words) { words.joinToString(" ") { it.value } }
     val selectedSnippet = remember(selectionVersion, words, sortedListItems) {
         if (isList) {
             val sortedSelected = selectedIndices.sorted()
@@ -442,7 +445,7 @@ fun PartialCopyDialog(
             for (i in words.indices) {
                 if (set.contains(i)) {
                     if (sb.isNotEmpty()) sb.append(' ')
-                    sb.append(words[i])
+                    sb.append(words[i].value)
                 }
             }
             sb.toString()
@@ -529,13 +532,13 @@ fun PartialCopyDialog(
                                         ) {
                                             Text(
                                                 text = "${index + 1}. ",
-                                                color = if (isSelected) Color.White.copy(alpha = 0.8f) else TextSecondary,
+                                                color = if (isSelected) OnAccent.copy(alpha = 0.8f) else TextSecondary,
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Medium
                                             )
                                             Text(
                                                 text = item.value,
-                                                color = if (isSelected) Color.White else TextPrimary,
+                                                color = if (isSelected) OnAccent else TextPrimary,
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Normal,
                                                 modifier = Modifier.weight(1f)
@@ -598,8 +601,8 @@ fun PartialCopyDialog(
                                                         }
                                                 ) {
                                                     Text(
-                                                        text = word,
-                                                        color = if (isSelected) Color.White else TextPrimary,
+                                                        text = word.displayText,
+                                                        color = if (isSelected) OnAccent else TextPrimary,
                                                         fontSize = 13.sp,
                                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                                     )
@@ -638,8 +641,8 @@ fun PartialCopyDialog(
                                                         }
                                                 ) {
                                                     Text(
-                                                        text = word,
-                                                        color = if (isSelected) Color.White else TextPrimary,
+                                                        text = word.displayText,
+                                                        color = if (isSelected) OnAccent else TextPrimary,
                                                         fontSize = 13.sp,
                                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                                     )
@@ -666,16 +669,16 @@ fun PartialCopyDialog(
                             val density = LocalDensity.current
                             val widthPx = constraints.maxWidth
                             val rows = remember(words, widthPx) {
-                                val result = mutableListOf<List<Pair<Int, String>>>()
+                                val result = mutableListOf<List<Pair<Int, PartialCopyWord>>>()
                                 val avgCharPx = with(density) { 8.sp.toPx() }
                                 val chipExtraPx = with(density) { 26.dp.toPx() }
                                 val maxRowPx = (widthPx - with(density) { 20.dp.toPx() }).coerceAtLeast(100f)
 
-                                var currentRow = mutableListOf<Pair<Int, String>>()
+                                var currentRow = mutableListOf<Pair<Int, PartialCopyWord>>()
                                 var currentRowPx = 0f
 
                                 words.forEachIndexed { index, word ->
-                                    val wordPx = word.length * avgCharPx + chipExtraPx
+                                    val wordPx = word.displayText.length * avgCharPx + chipExtraPx
                                     if (currentRow.isNotEmpty() && (currentRowPx + wordPx > maxRowPx)) {
                                         result.add(currentRow)
                                         currentRow = mutableListOf()
@@ -925,8 +928,8 @@ fun PartialCopyDialog(
                                                         }
                                                 ) {
                                                     Text(
-                                                        text = word,
-                                                        color = if (isSelected) Color.White else TextPrimary,
+                                                        text = word.displayText,
+                                                        color = if (isSelected) OnAccent else TextPrimary,
                                                         fontSize = 13.sp,
                                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                                                     )
@@ -1044,9 +1047,9 @@ fun PartialCopyDialog(
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(painter = painterResource(R.drawable.ic_copy), contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Icon(painter = painterResource(R.drawable.ic_copy), contentDescription = null, tint = OnAccent, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Copy Snippet", color = Color.White, fontSize = 13.sp)
+                        Text("Copy Snippet", color = OnAccent, fontSize = 13.sp)
                     }
                 }
             }
@@ -1070,6 +1073,82 @@ fun PartialCopyDialog(
 // =============================================================================
 // Field-Value Group Dialog (New and Edit)
 // =============================================================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScrollableSingleLineTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default
+) {
+    val scrollState = rememberScrollState()
+    val interactionSource = remember { MutableInteractionSource() }
+
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+        singleLine = true,
+        textStyle = TextStyle(
+            color = TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Normal
+        ),
+        cursorBrush = SolidColor(BrightBlue),
+        keyboardOptions = keyboardOptions,
+        keyboardActions = keyboardActions,
+        interactionSource = interactionSource,
+        decorationBox = { innerTextField ->
+            OutlinedTextFieldDefaults.DecorationBox(
+                value = value,
+                innerTextField = {
+                    Box(modifier = Modifier.horizontalScroll(scrollState)) {
+                        innerTextField()
+                    }
+                },
+                enabled = true,
+                singleLine = true,
+                visualTransformation = VisualTransformation.None,
+                interactionSource = interactionSource,
+                placeholder = {
+                    Text(placeholder, color = TextMuted, fontSize = 13.sp)
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = SurfaceCard,
+                    unfocusedContainerColor = SurfaceCard,
+                    focusedBorderColor = BrightBlue,
+                    unfocusedBorderColor = BorderSubtle,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    cursorColor = BrightBlue
+                ),
+                contentPadding = OutlinedTextFieldDefaults.contentPadding(
+                    start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp
+                ),
+                container = {
+                    @Suppress("DEPRECATION")
+                    OutlinedTextFieldDefaults.ContainerBox(
+                        enabled = true,
+                        isError = false,
+                        interactionSource = interactionSource,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = SurfaceCard,
+                            unfocusedContainerColor = SurfaceCard,
+                            focusedBorderColor = BrightBlue,
+                            unfocusedBorderColor = BorderSubtle
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            )
+        }
+    )
+}
+
 @Composable
 private fun FieldValueRow(
     index: Int,
@@ -1080,9 +1159,13 @@ private fun FieldValueRow(
     onFieldChange: (String) -> Unit,
     onValueChange: (String) -> Unit,
     onRemove: () -> Unit,
-    onAddNext: () -> Unit
+    onAddNext: () -> Unit = {}
 ) {
     val fieldFocusRequester = remember { FocusRequester() }
+    val valueFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
     LaunchedEffect(shouldFocus) {
         if (shouldFocus) {
             fieldFocusRequester.requestFocus()
@@ -1105,27 +1188,17 @@ private fun FieldValueRow(
         )
 
         // Side-by-side: Field input
-        OutlinedTextField(
+        ScrollableSingleLineTextField(
             value = pair.field,
             onValueChange = onFieldChange,
-            placeholder = {
-                Text("Field", color = TextMuted, fontSize = 13.sp)
-            },
+            placeholder = "Field",
             modifier = Modifier
                 .weight(1f)
                 .focusRequester(fieldFocusRequester),
-            shape = RoundedCornerShape(10.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = SurfaceCard,
-                unfocusedContainerColor = SurfaceCard,
-                focusedBorderColor = BrightBlue,
-                unfocusedBorderColor = BorderSubtle,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                cursorColor = BrightBlue
-            ),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardActions = KeyboardActions(
+                onNext = { valueFocusRequester.requestFocus() }
+            )
         )
 
         // Centered "=" with padding
@@ -1139,29 +1212,19 @@ private fun FieldValueRow(
         )
 
         // Side-by-side: Value input
-        OutlinedTextField(
+        ScrollableSingleLineTextField(
             value = pair.value,
             onValueChange = onValueChange,
-            placeholder = {
-                Text("Value", color = TextMuted, fontSize = 13.sp)
-            },
-            modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(10.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = SurfaceCard,
-                unfocusedContainerColor = SurfaceCard,
-                focusedBorderColor = BrightBlue,
-                unfocusedBorderColor = BorderSubtle,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                cursorColor = BrightBlue
-            ),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(
-                imeAction = if (isLast) ImeAction.Done else ImeAction.Next
-            ),
+            placeholder = "Value",
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(valueFocusRequester),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(
-                onDone = { onAddNext() }
+                onDone = {
+                    keyboardController?.hide()
+                    focusManager.clearFocus()
+                }
             )
         )
 
@@ -1214,6 +1277,30 @@ fun FieldValueGroupDialog(
     val titleFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    val hasUnsavedContent = remember(isNew, titleText, pairs.toList(), initialTitle, initialItems) {
+        if (isNew) {
+            val titleNonEmpty = titleText.isNotEmpty() && titleText != "New Field Note"
+            val pairsNonEmpty = pairs.any { it.field.isNotEmpty() || it.value.isNotEmpty() }
+            titleNonEmpty || pairsNonEmpty
+        } else {
+            val titleDiffers = titleText != initialTitle
+            val rowsDiffer = pairs.size != initialItems.size || pairs.indices.any { i ->
+                pairs[i].field != initialItems[i].field || pairs[i].value != initialItems[i].value
+            }
+            titleDiffers || rowsDiffer
+        }
+    }
+
+    var showDiscardConfirm by remember { mutableStateOf(false) }
+
+    val requestClose = {
+        if (hasUnsavedContent) {
+            showDiscardConfirm = true
+        } else {
+            onDismiss()
+        }
+    }
+
     LaunchedEffect(isEditingTitle) {
         if (isEditingTitle) {
             titleFocusRequester.requestFocus()
@@ -1233,7 +1320,7 @@ fun FieldValueGroupDialog(
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = requestClose,
         containerColor = SurfaceDark,
         tonalElevation = 0.dp,
         shape = RoundedCornerShape(28.dp),
@@ -1390,7 +1477,7 @@ fun FieldValueGroupDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = requestClose) {
                 Text(
                     text = "Cancel",
                     color = BrightBlue,
@@ -1400,6 +1487,16 @@ fun FieldValueGroupDialog(
             }
         }
     )
+
+    if (showDiscardConfirm) {
+        DiscardConfirmDialog(
+            onDismiss = { showDiscardConfirm = false },
+            onConfirm = {
+                showDiscardConfirm = false
+                onDismiss()
+            }
+        )
+    }
 }
 
 @Composable
@@ -1444,9 +1541,11 @@ private fun ListRow(
     showRemove: Boolean,
     onValueChange: (String) -> Unit,
     onRemove: () -> Unit,
-    onAddNext: () -> Unit
+    onAddNext: () -> Unit = {}
 ) {
     val valueFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
     LaunchedEffect(shouldFocus) {
         if (shouldFocus) {
             valueFocusRequester.requestFocus()
@@ -1486,12 +1585,13 @@ private fun ListRow(
                 unfocusedTextColor = TextPrimary,
                 cursorColor = BrightBlue
             ),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(
-                imeAction = if (isLast) ImeAction.Done else ImeAction.Next
-            ),
+            singleLine = false,
+            maxLines = 2,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(
-                onDone = { onAddNext() }
+                onDone = {
+                    keyboardController?.hide()
+                }
             )
         )
 
@@ -1544,6 +1644,30 @@ fun ListGroupDialog(
     val titleFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    val hasUnsavedContent = remember(isNew, titleText, rows.toList(), initialTitle, initialItems) {
+        if (isNew) {
+            val titleNonEmpty = titleText.isNotEmpty() && titleText != "New List"
+            val rowsNonEmpty = rows.any { it.value.isNotEmpty() }
+            titleNonEmpty || rowsNonEmpty
+        } else {
+            val titleDiffers = titleText != initialTitle
+            val rowsDiffer = rows.size != initialItems.size || rows.indices.any { i ->
+                rows[i].value != initialItems[i].value
+            }
+            titleDiffers || rowsDiffer
+        }
+    }
+
+    var showDiscardConfirm by remember { mutableStateOf(false) }
+
+    val requestClose = {
+        if (hasUnsavedContent) {
+            showDiscardConfirm = true
+        } else {
+            onDismiss()
+        }
+    }
+
     LaunchedEffect(isEditingTitle) {
         if (isEditingTitle) {
             titleFocusRequester.requestFocus()
@@ -1564,7 +1688,7 @@ fun ListGroupDialog(
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = requestClose,
         containerColor = SurfaceDark,
         tonalElevation = 0.dp,
         shape = RoundedCornerShape(28.dp),
@@ -1725,7 +1849,7 @@ fun ListGroupDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = requestClose) {
                 Text(
                     text = "Cancel",
                     color = BrightBlue,
@@ -1735,6 +1859,16 @@ fun ListGroupDialog(
             }
         }
     )
+
+    if (showDiscardConfirm) {
+        DiscardConfirmDialog(
+            onDismiss = { showDiscardConfirm = false },
+            onConfirm = {
+                showDiscardConfirm = false
+                onDismiss()
+            }
+        )
+    }
 }
 
 @Composable
@@ -1788,8 +1922,22 @@ fun EditNoteDialog(
         mutableStateOf(note.spans.toList())
     }
 
+    val hasUnsavedContent = remember(textFieldValue.text, currentSpans, note.text, note.spans) {
+        textFieldValue.text != note.text || currentSpans != note.spans.toList()
+    }
+
+    var showDiscardConfirm by remember { mutableStateOf(false) }
+
+    val requestClose = {
+        if (hasUnsavedContent) {
+            showDiscardConfirm = true
+        } else {
+            onDismiss()
+        }
+    }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = requestClose,
         containerColor = BgDark,
         shape = RoundedCornerShape(28.dp),
         title = {
@@ -1899,15 +2047,25 @@ fun EditNoteDialog(
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
             ) {
-                Text("Save", color = Color.White)
+                Text("Save", color = OnAccent)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = requestClose) {
                 Text("Cancel", color = TextSecondary)
             }
         }
     )
+
+    if (showDiscardConfirm) {
+        DiscardConfirmDialog(
+            onDismiss = { showDiscardConfirm = false },
+            onConfirm = {
+                showDiscardConfirm = false
+                onDismiss()
+            }
+        )
+    }
 }
 
 // =============================================================================
@@ -1945,6 +2103,50 @@ fun DeleteConfirmDialog(
             TextButton(onClick = onConfirm) {
                 Text(
                     text = "Delete",
+                    color = DestructiveAction,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    text = "Cancel",
+                    color = BrightBlue,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    )
+}
+
+// =============================================================================
+// Discard Confirmation Dialog
+// =============================================================================
+@Composable
+fun DiscardConfirmDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(28.dp),
+        title = {
+            Text(
+                text = "Discard changes?",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp,
+                color = TextPrimary
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    text = "Confirm",
                     color = DestructiveAction,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold

@@ -22,16 +22,14 @@ class NoteFilterTest {
         id = "3",
         text = "Server = Production",
         type = NoteType.FIELD_VALUE,
-        field = "Server",
-        value = "Production"
+        fieldItems = mutableListOf(FieldValueEntry(field = "Server", value = "Production", insertionOrder = 0))
     )
 
     private val fieldValueNote2 = NoteItem(
         id = "4",
         text = "API_KEY = secret123",
         type = NoteType.FIELD_VALUE,
-        field = "API_KEY",
-        value = "secret123"
+        fieldItems = mutableListOf(FieldValueEntry(field = "API_KEY", value = "secret123", insertionOrder = 0))
     )
 
     private val allNotes = listOf(normalNote1, normalNote2, fieldValueNote1, fieldValueNote2)

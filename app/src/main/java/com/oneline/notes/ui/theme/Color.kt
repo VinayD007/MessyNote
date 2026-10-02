@@ -13,10 +13,12 @@ data class MessNoteColors(
     val surfaceElevated: Color,
     val primaryBlue: Color,
     val brightBlue: Color,
+    val onAccent: Color,
     val selectedItemBackground: Color,
     val destructiveAction: Color,
     val monospaceBg: Color,
     val monospaceText: Color,
+    val linkAccent: Color,
     val textPrimary: Color,
     val textSecondary: Color,
     val textMuted: Color,
@@ -29,16 +31,38 @@ val DarkMessNoteColors = MessNoteColors(
     surfaceCard = Color(0xFF1E222B),
     surfaceDark = Color(0xFF252A35),
     surfaceElevated = Color(0xFF252A35),
-    primaryBlue = Color(0xFF004296),
-    brightBlue = Color(0xFF004296),
+    primaryBlue = Color(0xFF1D9BF0),
+    brightBlue = Color(0xFF1D9BF0),
+    onAccent = Color(0xFFFFFFFF),
     selectedItemBackground = Color(0xFF1E3250),
     destructiveAction = Color(0xFFEF5350),
     monospaceBg = Color(0xFF121620),
     monospaceText = Color(0xFF648EEA),
+    linkAccent = Color(0xFF64B5F6),
     textPrimary = Color(0xFFEDEDEF),
     textSecondary = Color(0xFFA0A2A9),
     textMuted = Color(0xFFA0A2A9),
     borderSubtle = Color(0xFF2E3440)
+)
+
+val LightMessNoteColors = MessNoteColors(
+    bg = Color(0xFFF5F6F8),
+    headerBg = Color(0xFFFFFFFF),
+    surfaceCard = Color(0xFFFFFFFF),
+    surfaceDark = Color(0xFFFFFFFF),
+    surfaceElevated = Color(0xFFF0F2F5),
+    primaryBlue = Color(0xFF1D9BF0),
+    brightBlue = Color(0xFF0878C9),
+    onAccent = Color(0xFFFFFFFF),
+    selectedItemBackground = Color(0xFFE5F2FC),
+    destructiveAction = Color(0xFFC62828),
+    monospaceBg = Color(0xFFEAF1FA),
+    monospaceText = Color(0xFF315EA8),
+    linkAccent = Color(0xFF004296),
+    textPrimary = Color(0xFF202124),
+    textSecondary = Color(0xFF5F6368),
+    textMuted = Color(0xFF72767D),
+    borderSubtle = Color(0xFFD7DBE0)
 )
 
 val LocalMessNoteColors = compositionLocalOf { DarkMessNoteColors }
@@ -71,3 +95,5 @@ val TextPrimary: Color @Composable @ReadOnlyComposable get() = LocalMessNoteColo
 val TextSecondary: Color @Composable @ReadOnlyComposable get() = LocalMessNoteColors.current.textSecondary
 val TextMuted: Color @Composable @ReadOnlyComposable get() = LocalMessNoteColors.current.textMuted
 val BorderSubtle: Color @Composable @ReadOnlyComposable get() = LocalMessNoteColors.current.borderSubtle
+val OnAccent: Color @Composable @ReadOnlyComposable get() = LocalMessNoteColors.current.onAccent
+val LinkAccent: Color @Composable @ReadOnlyComposable get() = LocalMessNoteColors.current.linkAccent

@@ -37,8 +37,6 @@ fun parseNotesFromJson(jsonString: String): ParseNotesResult {
             } catch (_: Exception) {
                 NoteType.NORMAL
             }
-            val field = if (obj.has("field")) obj.getString("field") else null
-            val value = if (obj.has("value")) obj.getString("value") else null
             val title = if (obj.has("title")) obj.getString("title") else null
 
             val items = mutableListOf<FieldValueEntry>()
@@ -55,14 +53,6 @@ fun parseNotesFromJson(jsonString: String): ParseNotesResult {
                         )
                     )
                 }
-            } else if (field != null && value != null) {
-                items.add(
-                    FieldValueEntry(
-                        field = field,
-                        value = value,
-                        insertionOrder = 0
-                    )
-                )
             }
             items.sortBy { it.insertionOrder }
 
@@ -103,8 +93,6 @@ fun parseNotesFromJson(jsonString: String): ParseNotesResult {
                 title = title ?: if (type == NoteType.FIELD_VALUE && items.isNotEmpty()) items.first().field else null,
                 fieldItems = items,
                 listItems = listRows,
-                field = field ?: items.firstOrNull()?.field,
-                value = value ?: items.firstOrNull()?.value,
                 favorite = obj.optBoolean("favorite", false)
             )
             list.add(note)
@@ -140,8 +128,6 @@ fun notesToJson(notes: List<NoteItem>): String {
             put("type", note.type.name)
             put("favorite", note.favorite)
             if (note.title != null) put("title", note.title)
-            if (note.field != null) put("field", note.field)
-            if (note.value != null) put("value", note.value)
             if (note.fieldItems.isNotEmpty()) {
                 val itemsArray = JSONArray()
                 note.fieldItems.forEach { itm ->

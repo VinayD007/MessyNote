@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.ComposeFoundationFlags
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -31,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -58,21 +58,47 @@ class MainActivity : ComponentActivity() {
         ComposeFoundationFlags.isNewContextMenuEnabled = false
         enableEdgeToEdge()
         setContent {
-            OneLineNotesTheme {
+            val context = LocalContext.current
+            val themePreferences = remember {
+                context.getSharedPreferences("mess_note_preferences", MODE_PRIVATE)
+            }
+            var themeOverride by rememberSaveable {
+                mutableStateOf(themePreferences.getString("theme_mode", null))
+            }
+            val systemDarkTheme = isSystemInDarkTheme()
+            val isDarkTheme = when (themeOverride) {
+                "dark" -> true
+                "light" -> false
+                else -> systemDarkTheme
+            }
+
+            OneLineNotesTheme(darkTheme = isDarkTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = BgDark
                 ) {
-                    OneLineNotesScreen()
+                    OneLineNotesScreen(
+                        isDarkTheme = isDarkTheme,
+                        onThemeToggle = {
+                            val nextTheme = if (isDarkTheme) "light" else "dark"
+                            themeOverride = nextTheme
+                            themePreferences.edit().putString("theme_mode", nextTheme).apply()
+                        }
+                    )
                 }
             }
         }
     }
 }
 
+val LocalTransientMessageSender = staticCompositionLocalOf<(String) -> Unit> { {} }
+
 @Suppress("DEPRECATION")
 @Composable
-fun OneLineNotesScreen() {
+fun OneLineNotesScreen(
+    isDarkTheme: Boolean,
+    onThemeToggle: () -> Unit
+) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
@@ -129,12 +155,13 @@ fun OneLineNotesScreen() {
         }
     }
 
-    // Open favorites scrolled to newest end
+    // Open favorites scrolled to top (newest first); return to home scrolled to top
     LaunchedEffect(isFavoritesPage) {
         if (isFavoritesPage) {
-            val favs = favoritesFor(notes, favSearchQuery)
-            if (favs.isNotEmpty()) {
-                favListState.scrollToItem(favs.size - 1)
+            favListState.scrollToItem(0)
+        } else {
+            if (notes.isNotEmpty()) {
+                listState.scrollToItem(0)
             }
         }
     }
@@ -154,7 +181,7 @@ fun OneLineNotesScreen() {
 
     // Handle system back gesture in prioritized order:
     // selection mode -> search -> dialogs/popup -> Favorites page -> home
-    val anyDialogShowing = showBottomSheet || showPartialCopyDialog || showEditDialog || showNewFieldDialog || showEditFieldDialog || showNewListDialog || showEditListDialog || showDeleteConfirmDialog
+    val anyDialogShowing = showBottomSheet || showPartialCopyDialog || showDeleteConfirmDialog
     val activeSearch = if (isFavoritesPage) isFavSearchActive else isSearchActive
 
     BackHandler(enabled = isPlusMenuExpanded || isMultiSelectMode || activeSearch || anyDialogShowing || isFavoritesPage) {
@@ -177,11 +204,6 @@ fun OneLineNotesScreen() {
             anyDialogShowing -> {
                 showBottomSheet = false
                 showPartialCopyDialog = false
-                showEditDialog = false
-                showNewFieldDialog = false
-                showEditFieldDialog = false
-                showNewListDialog = false
-                showEditListDialog = false
                 showDeleteConfirmDialog = false
             }
             isFavoritesPage -> {
@@ -205,17 +227,17 @@ fun OneLineNotesScreen() {
     // Filtered Notes based on active filter and search query (derivedStateOf ensures immediate updates on item mutation)
     val displayedNotes by remember {
         derivedStateOf {
-            filterNotes(notes, selectedFilter, searchQuery)
+            getDisplayedNotes(notes, selectedFilter, searchQuery)
         }
     }
 
     val displayedFavNotes by remember {
         derivedStateOf {
-            favoritesFor(notes, favSearchQuery)
+            getDisplayedFavorites(notes, favSearchQuery)
         }
     }
 
-    // Load initial notes from storage (no default welcome note)
+    // Load initial notes from storage (no default welcome note), open scrolled to top
     LaunchedEffect(Unit) {
         val loaded = loadNotesFromStorage(context)
         val cleaned = loaded.filterNot {
@@ -227,6 +249,9 @@ fun OneLineNotesScreen() {
         notes.addAll(cleaned)
         if (loaded.size != cleaned.size) {
             saveNotesToStorage(context, cleaned)
+        }
+        if (notes.isNotEmpty()) {
+            listState.scrollToItem(0)
         }
     }
 
@@ -264,13 +289,14 @@ fun OneLineNotesScreen() {
             }
             coroutineScope.launch {
                 if (displayedNotes.isNotEmpty()) {
-                    listState.animateScrollToItem(displayedNotes.size - 1)
+                    listState.animateScrollToItem(0)
                 }
             }
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    CompositionLocalProvider(LocalTransientMessageSender provides showTransientMessage) {
+        Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier
                 .fillMaxSize()
@@ -360,6 +386,8 @@ fun OneLineNotesScreen() {
                         }
                     } else if (!isSearchActive) {
                         NormalHeader(
+                            isDarkTheme = isDarkTheme,
+                            onThemeToggle = onThemeToggle,
                             onSearchTrigger = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 isSearchActive = true
@@ -607,13 +635,13 @@ fun OneLineNotesScreen() {
                                                 Icon(
                                                     painter = painterResource(R.drawable.ic_edit),
                                                     contentDescription = "New Field Note",
-                                                    tint = Color.White,
+                                                    tint = OnAccent,
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
                                                     text = "Field-Value",
-                                                    color = Color.White,
+                                                    color = OnAccent,
                                                     fontSize = 14.sp,
                                                     fontWeight = FontWeight.SemiBold
                                                 )
@@ -639,13 +667,13 @@ fun OneLineNotesScreen() {
                                                 Icon(
                                                     painter = painterResource(R.drawable.ic_check),
                                                     contentDescription = "New List",
-                                                    tint = Color.White,
+                                                    tint = OnAccent,
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
                                                     text = "List",
-                                                    color = Color.White,
+                                                    color = OnAccent,
                                                     fontSize = 14.sp,
                                                     fontWeight = FontWeight.SemiBold
                                                 )
@@ -672,7 +700,7 @@ fun OneLineNotesScreen() {
                                                 if (isPlusMenuExpanded) R.drawable.ic_close else R.drawable.ic_add
                                             ),
                                             contentDescription = if (isPlusMenuExpanded) "Close menu" else "Add note",
-                                            tint = Color.White,
+                                            tint = OnAccent,
                                             modifier = Modifier.size(22.dp)
                                         )
                                     }
@@ -862,9 +890,7 @@ fun OneLineNotesScreen() {
                     text = "",
                     type = NoteType.FIELD_VALUE,
                     title = title,
-                    fieldItems = items.toMutableList(),
-                    field = items.firstOrNull()?.field,
-                    value = items.firstOrNull()?.value
+                    fieldItems = items.toMutableList()
                 ).apply {
                     text = buildGroupedText()
                 }
@@ -872,7 +898,7 @@ fun OneLineNotesScreen() {
                 saveNotesToStorage(context, notes)
                 coroutineScope.launch {
                     if (displayedNotes.isNotEmpty()) {
-                        listState.animateScrollToItem(displayedNotes.size - 1)
+                        listState.animateScrollToItem(0)
                     }
                 }
                 showNewFieldDialog = false
@@ -896,8 +922,6 @@ fun OneLineNotesScreen() {
                     text = "",
                     title = updatedTitle,
                     fieldItems = updatedItems.toMutableList(),
-                    field = updatedItems.firstOrNull()?.field,
-                    value = updatedItems.firstOrNull()?.value,
                     updatedAt = System.currentTimeMillis()
                 ).apply {
                     text = buildGroupedText()
@@ -933,7 +957,7 @@ fun OneLineNotesScreen() {
                 saveNotesToStorage(context, notes)
                 coroutineScope.launch {
                     if (displayedNotes.isNotEmpty()) {
-                        listState.animateScrollToItem(displayedNotes.size - 1)
+                        listState.animateScrollToItem(0)
                     }
                 }
                 showNewListDialog = false
@@ -1013,5 +1037,6 @@ fun OneLineNotesScreen() {
                 }
             }
         )
+    }
     }
 }
