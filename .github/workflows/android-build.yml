@@ -39,14 +39,12 @@ jobs:
           name: MessNote-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Prepare Release APK asset
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: cp app/build/outputs/apk/debug/app-debug.apk "MessNote-${{ github.ref_name }}-debug.apk"
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Update Latest Release
         uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
         with:
-          files: MessNote-${{ github.ref_name }}-debug.apk
+          tag_name: latest
+          name: Latest Development Build
+          files: app/build/outputs/apk/debug/app-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
