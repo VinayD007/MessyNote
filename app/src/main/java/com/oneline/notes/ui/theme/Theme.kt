@@ -13,12 +13,8 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.graphics.Color
@@ -30,8 +26,8 @@ import kotlinx.coroutines.flow.first
 
 private const val ThemeTransitionMillis = 560
 
-/** Progress shared with the header toggle without making the whole UI recompose each frame. */
-val LocalThemeTransitionProgress = compositionLocalOf<State<Float>> { mutableFloatStateOf(0f) }
+/** Shared animation progress for palette colors, Material colors, and the header toggle. */
+val LocalThemeTransitionProgress = compositionLocalOf { 0f }
 
 private val DarkColorScheme = darkColorScheme(
     primary = DarkMessNoteColors.primaryBlue,
@@ -78,8 +74,6 @@ private fun interpolateColors(
     bg = dark.bg.blendTo(light.bg, progress),
     headerBg = dark.headerBg.blendTo(light.headerBg, progress),
     surfaceCard = dark.surfaceCard.blendTo(light.surfaceCard, progress),
-    noteBubbleBackground = dark.noteBubbleBackground.blendTo(light.noteBubbleBackground, progress),
-    noteBubbleAccent = dark.noteBubbleAccent.blendTo(light.noteBubbleAccent, progress),
     surfaceDark = dark.surfaceDark.blendTo(light.surfaceDark, progress),
     surfaceElevated = dark.surfaceElevated.blendTo(light.surfaceElevated, progress),
     primaryBlue = dark.primaryBlue.blendTo(light.primaryBlue, progress),
@@ -152,74 +146,47 @@ private fun ColorScheme.blendTo(other: ColorScheme, progress: Float): ColorSchem
 @Composable
 fun OneLineNotesTheme(
     darkTheme: Boolean,
-    animateThemeColors: Boolean = true,
-    toggleProgress: State<Float>? = null,
-    manageSystemBars: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val animatedProgressState = if (animateThemeColors) {
-        val transition = updateTransition(targetState = darkTheme, label = "appTheme")
-        transition.animateFloat(
-            transitionSpec = {
-                tween(
-                    durationMillis = ThemeTransitionMillis,
-                    easing = FastOutSlowInEasing
-                )
-            },
-            label = "themeProgress"
-        ) { isDark -> if (isDark) 0f else 1f }
-    } else {
-        null
-    }
-    val endpointProgress = if (darkTheme) 0f else 1f
-    val paletteProgress = animatedProgressState?.value ?: endpointProgress
-    val appColors = if (animateThemeColors) {
-        interpolateColors(DarkMessNoteColors, LightMessNoteColors, paletteProgress)
-    } else if (darkTheme) {
-        DarkMessNoteColors
-    } else {
-        LightMessNoteColors
-    }
-    val colorScheme = if (animateThemeColors) {
-        DarkColorScheme.blendTo(LightColorScheme, paletteProgress)
-    } else if (darkTheme) {
-        DarkColorScheme
-    } else {
-        LightColorScheme
-    }
-    val localToggleProgress = toggleProgress ?: remember(darkTheme, animatedProgressState) {
-        derivedStateOf { animatedProgressState?.value ?: endpointProgress }
-    }
+    val transition = updateTransition(targetState = darkTheme, label = "appTheme")
+    val progressState = transition.animateFloat(
+        transitionSpec = {
+            tween(
+                durationMillis = ThemeTransitionMillis,
+                easing = FastOutSlowInEasing
+            )
+        },
+        label = "themeProgress"
+    ) { isDark -> if (isDark) 0f else 1f }
+    val progress = progressState.value
+    val appColors = interpolateColors(DarkMessNoteColors, LightMessNoteColors, progress)
+    val colorScheme = DarkColorScheme.blendTo(LightColorScheme, progress)
 
     val view = LocalView.current
-    if (manageSystemBars) {
-        if (!view.isInEditMode) {
-            SideEffect {
-                val window = (view.context as Activity).window
-                window.statusBarColor = appColors.headerBg.toArgb()
-                window.navigationBarColor = appColors.bg.toArgb()
-            }
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as Activity).window
+            window.statusBarColor = appColors.headerBg.toArgb()
+            window.navigationBarColor = appColors.bg.toArgb()
         }
+    }
 
-        LaunchedEffect(darkTheme) {
-            withFrameNanos { }
-            animatedProgressState?.let { progressState ->
-                snapshotFlow { progressState.value }.first { value ->
-                    if (darkTheme) value <= 0.5f else value >= 0.5f
-                }
-            }
-            if (!view.isInEditMode) {
-                val window = (view.context as Activity).window
-                val controller = WindowCompat.getInsetsController(window, view)
-                controller.isAppearanceLightStatusBars = !darkTheme
-                controller.isAppearanceLightNavigationBars = !darkTheme
-            }
+    LaunchedEffect(darkTheme) {
+        withFrameNanos { }
+        snapshotFlow { progressState.value }.first { value ->
+            if (darkTheme) value <= 0.5f else value >= 0.5f
+        }
+        if (!view.isInEditMode) {
+            val window = (view.context as Activity).window
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.isAppearanceLightStatusBars = !darkTheme
+            controller.isAppearanceLightNavigationBars = !darkTheme
         }
     }
 
     CompositionLocalProvider(
         LocalMessNoteColors provides appColors,
-        LocalThemeTransitionProgress provides localToggleProgress
+        LocalThemeTransitionProgress provides progress
     ) {
         MaterialExpressiveTheme(
             colorScheme = colorScheme,

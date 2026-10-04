@@ -1,5 +1,8 @@
 package com.oneline.notes
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -14,16 +17,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.oneline.notes.ui.theme.*
@@ -37,7 +39,7 @@ fun SentNoteBubble(
     onLongClick: () -> Unit,
     onMonoTap: (String) -> Unit,
     modifier: Modifier = Modifier,
-    isSelectionMode: Boolean = false
+    isSelectionMode: Boolean = isSelected
 ) {
     val context = LocalContext.current
     val sendTransientMessage = LocalTransientMessageSender.current
@@ -79,23 +81,49 @@ fun SentNoteBubble(
         )
     }
 
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, NoteBubbleAccent),
-        shadowElevation = 0.dp,
+    val selectionProgress by animateFloatAsState(
+        targetValue = if (isSelected) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "bubbleSelectionProgress"
+    )
+    val bubbleScale = 1f + (0.02f * selectionProgress)
+    val colorProgress = selectionProgress.coerceIn(0f, 1f)
+    val bubbleBgColor = lerp(SurfaceCard, SelectedItemBackground, colorProgress)
+    val bubbleBorderColor = lerp(
+        BorderSubtle.copy(alpha = 0.5f),
+        BrightBlue.copy(alpha = 0.7f),
+        colorProgress
+    )
+
+    val bubbleShape = RoundedCornerShape(14.dp)
+
+    Box(
         modifier = modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
     ) {
-            Column(
-                modifier = Modifier.padding(
-                    horizontal = 14.dp,
-                    vertical = 12.dp
+        Surface(
+            shape = bubbleShape,
+            color = bubbleBgColor,
+            border = BorderStroke(1.dp, bubbleBorderColor),
+            shadowElevation = if (isSelected) 4.dp else 2.dp,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .widthIn(min = 80.dp)
+                .graphicsLayer {
+                    scaleX = bubbleScale
+                    scaleY = bubbleScale
+                }
+                .clip(bubbleShape)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
                 )
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 if (note.type == NoteType.FIELD_VALUE) {
                     if (!note.title.isNullOrBlank()) {
@@ -115,62 +143,24 @@ fun SentNoteBubble(
 
                     val sortedItems = note.getSortedFieldItems()
 
-                    val density = LocalDensity.current
-                    val textMeasurer = rememberTextMeasurer()
-                    val fieldStyle = TextStyle(
-                        color = TextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Start
-                    )
-                    val numberStyle = TextStyle(
-                        color = TextSecondary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-
-                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                        val fieldColumns = remember(sortedItems, maxWidth, density, textMeasurer) {
-                            val maxMeasureWidthPx = with(density) { maxWidth.roundToPx() }
-                            val numberWidthPx = textMeasurer.measure(
-                                AnnotatedString("${sortedItems.size}. "),
-                                style = numberStyle,
-                                constraints = androidx.compose.ui.unit.Constraints(maxWidth = maxMeasureWidthPx)
-                            ).size.width
-                            val maxFieldWidthPx = sortedItems.maxOfOrNull { item ->
-                                textMeasurer.measure(
-                                    AnnotatedString(item.field),
-                                    style = fieldStyle,
-                                    constraints = Constraints(maxWidth = maxMeasureWidthPx)
-                                ).size.width
-                            } ?: 0
-                            val fieldWidthLimit = with(density) {
-                                minOf(
-                                    (maxWidth * 0.42f).roundToPx(),
-                                    (maxWidth - numberWidthPx.toDp() - 68.dp).coerceAtLeast(1.dp).roundToPx()
-                                )
-                            }
-                            with(density) {
-                                numberWidthPx.toDp() to
-                                    maxFieldWidthPx.coerceAtMost(fieldWidthLimit).coerceAtLeast(1).toDp()
-                            }
-                        }
-                        val numberColumn = fieldColumns.first
-                        val separatorColumn = fieldColumns.second
-
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            sortedItems.forEachIndexed { index, item ->
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        sortedItems.forEachIndexed { index, item ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.weight(1f),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
                                         text = "${index + 1}. ",
-                                        style = numberStyle,
-                                        modifier = Modifier.width(numberColumn)
+                                        color = TextSecondary,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Medium
                                     )
                                     val fieldUrlSpans = remember(item.field) { extractUrlSpans(item.field) }
                                     val fieldAnnotated = remember(item.field, linkAccentColor, fieldUrlSpans) {
@@ -184,34 +174,42 @@ fun SentNoteBubble(
                                     }
                                     ClickableText(
                                         text = fieldAnnotated,
-                                        modifier = Modifier.width(separatorColumn),
-                                        style = fieldStyle,
+                                        style = TextStyle(
+                                            color = TextPrimary,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            textAlign = TextAlign.Start
+                                        ),
                                         onClick = { offset ->
                                             handleTextTap(offset, item.field, emptyList(), fieldUrlSpans)
                                         }
                                     )
-                                    Text(
-                                        text = "=",
-                                        color = TextSecondary,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.padding(horizontal = 6.dp)
-                                    )
+                                }
 
+                                Text(
+                                    text = "=",
+                                    color = TextSecondary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
+
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.CenterEnd
+                                ) {
                                     if (item.value.isNotEmpty()) {
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
                                             color = currentMonoBg,
-                                            modifier = Modifier
-                                                .weight(1f, fill = false)
-                                                .clickable {
-                                                    if (isSelectionMode) {
-                                                        onClick()
-                                                    } else {
-                                                        onMonoTap(item.value)
-                                                    }
+                                            modifier = Modifier.clickable {
+                                                if (isSelectionMode) {
+                                                    onClick()
+                                                } else {
+                                                    onMonoTap(item.value)
                                                 }
+                                            }
                                         ) {
                                             val valueUrlSpans = remember(item.value) { extractUrlSpans(item.value) }
                                             val valueAnnotated = remember(item.value, valueUrlSpans, currentMonoText, currentMonoBg, linkAccentColor) {
@@ -229,7 +227,7 @@ fun SentNoteBubble(
                                                 color = currentMonoText,
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Normal,
-                                                textAlign = TextAlign.Start,
+                                                textAlign = TextAlign.End,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                             )
                                         }
@@ -356,6 +354,7 @@ fun SentNoteBubble(
                 }
             }
         }
+    }
 
     if (linkToOpen != null) {
         val url = linkToOpen!!
