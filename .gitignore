@@ -62,3 +62,5 @@ Thumbs.db
 
 # Project-specific ignored files
 fonts-src/
+
+auto-sync.ps1

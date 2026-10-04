@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
@@ -392,6 +393,7 @@ fun NormalHeader(
     onThemeTogglePositioned: (Offset) -> Unit = {},
     onSearchTrigger: () -> Unit,
     onFavoritesClick: () -> Unit = {},
+    onBinClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -421,10 +423,27 @@ fun NormalHeader(
             )
         }
 
-        // Top Right: Header Star & Search Trigger Button
+        // Top Right: Bin, Header Star & Search Trigger Button
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .clickable { onBinClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_delete),
+                    contentDescription = "Bin",
+                    tint = TextPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(4.dp))
+
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -513,6 +532,82 @@ fun FavoritesHeader(
                 tint = TextPrimary,
                 modifier = Modifier.size(24.dp)
             )
+        }
+    }
+}
+
+// =============================================================================
+// Bin Header
+// =============================================================================
+@Composable
+fun BinHeader(
+    onBack: () -> Unit,
+    onSearchTrigger: () -> Unit,
+    onDeleteAll: () -> Unit,
+    hasNotes: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(HeaderRowHeight)
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .clickable { onBack() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = "Back",
+                    tint = TextPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "Bin",
+                fontWeight = FontWeight.Medium,
+                fontSize = 18.sp,
+                color = TextPrimary
+            )
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .clickable { onSearchTrigger() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_search),
+                    contentDescription = "Search bin",
+                    tint = TextPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            TextButton(
+                onClick = onDeleteAll,
+                enabled = hasNotes
+            ) {
+                Text(
+                    text = "Delete all",
+                    color = if (hasNotes) DestructiveAction else TextSecondary.copy(alpha = 0.5f),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }
@@ -615,7 +710,7 @@ fun SearchBarHeader(
 // =============================================================================
 // Home Content Filter Control: [ All ] [ Notes ] [ Fields-Values ]
 // =============================================================================
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeFilterControl(
     selectedFilter: NoteFilter,
@@ -625,7 +720,6 @@ fun HomeFilterControl(
     isRevealLayer: Boolean = false
 ) {
     val filters = NoteFilter.entries
-
     val isLight = LocalMessNoteColors.current.bg == Color(0xFFFFFFFF)
 
     Row(
@@ -633,10 +727,10 @@ fun HomeFilterControl(
             .fillMaxWidth()
             .horizontalScroll(scrollState)
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween, Alignment.Start),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        filters.forEachIndexed { index, filter ->
+        filters.forEach { filter ->
             val isSelected = selectedFilter == filter
             val bringIntoViewRequester = remember { BringIntoViewRequester() }
 
@@ -648,49 +742,48 @@ fun HomeFilterControl(
                 }
             }
 
-            val shapes = when (index) {
-                0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                filters.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+            val chipContainerColor = if (isSelected) {
+                if (isLight) BrightBlue else Color(0xFF1C1C1E)
+            } else {
+                if (isLight) Color.White else SurfaceCard
             }
 
-            ToggleButton(
-                checked = isSelected,
-                onCheckedChange = { onFilterSelected(filter) },
-                shapes = shapes,
-                colors = if (isLight) {
-                    ToggleButtonDefaults.toggleButtonColors(
-                        containerColor = Color.White,
-                        contentColor = BrightBlue,
-                        checkedContainerColor = BrightBlue,
-                        checkedContentColor = Color.White
-                    )
-                } else {
-                    ToggleButtonDefaults.toggleButtonColors(
-                        containerColor = SurfaceCard,
-                        contentColor = BrightBlue,
-                        checkedContainerColor = Color(0xFF1C1C1E),
-                        checkedContentColor = BrightBlue
-                    )
-                },
-                border = if (isLight) {
-                    if (isSelected) null else BorderStroke(1.dp, BrightBlue)
-                } else {
-                    if (isSelected) BorderStroke(1.dp, BrightBlue) else null
-                },
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
+            val chipContentColor = if (isSelected) {
+                if (isLight) Color.White else BrightBlue
+            } else {
+                if (isLight) BrightBlue else TextSecondary
+            }
+
+            val chipBorder = if (isSelected) {
+                if (isLight) null else BorderStroke(1.dp, BrightBlue)
+            } else {
+                if (isLight) BorderStroke(1.dp, BrightBlue.copy(alpha = 0.5f)) else BorderStroke(1.dp, BorderSubtle)
+            }
+
+            Surface(
+                shape = CircleShape,
+                color = chipContainerColor,
+                border = chipBorder,
                 modifier = Modifier
-                    .height(44.dp)
+                    .height(38.dp)
+                    .clip(CircleShape)
+                    .clickable { onFilterSelected(filter) }
                     .bringIntoViewRequester(bringIntoViewRequester)
             ) {
-                Text(
-                    text = filter.label,
-                    fontFamily = GoogleSans,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    softWrap = false
-                )
+                Box(
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = filter.label,
+                        fontFamily = GoogleSans,
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = chipContentColor,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     }
@@ -812,7 +905,7 @@ fun SwipeableSnackbar(
     }
 }
 
-val ActionButtonSize = 48.dp
+val ActionButtonSize = 56.dp
 
 // =============================================================================
 // Notes Composer
@@ -825,6 +918,7 @@ fun NotesComposer(
     onSpansChange: (List<TextSpan>) -> Unit,
     onSendNote: () -> Unit,
     onExpand: () -> Unit,
+    onFocusChanged: (Boolean) -> Unit = {},
     onPanelBoundsChanged: (Rect) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -861,38 +955,41 @@ fun NotesComposer(
     val currentMonoBg = MonospaceBg
     val panelShape = RoundedCornerShape(22.dp)
 
-    Surface(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .onGloballyPositioned { coordinates ->
-                val position = coordinates.positionInRoot()
-                onPanelBoundsChanged(
-                    Rect(
-                        left = position.x,
-                        top = position.y,
-                        right = position.x + coordinates.size.width,
-                        bottom = position.y + coordinates.size.height
-                    )
-                )
-            },
-        shape = panelShape,
-        color = BgDark.copy(alpha = 0.78f),
-        border = BorderStroke(1.dp, BorderSubtle.copy(alpha = 0.45f))
+            .padding(start = 16.dp, end = 16.dp, bottom = 8.dp, top = 8.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
+        // 1. Decoupled Text Input Container occupying remaining width without overlap
+        Surface(
+            modifier = Modifier
+                .weight(1f)
+                .onGloballyPositioned { coordinates ->
+                    val position = coordinates.positionInRoot()
+                    onPanelBoundsChanged(
+                        Rect(
+                            left = position.x,
+                            top = position.y,
+                            right = position.x + coordinates.size.width,
+                            bottom = position.y + coordinates.size.height
+                        )
+                    )
+                },
+            shape = panelShape,
+            color = SurfaceCard,
+            border = BorderStroke(1.dp, BorderSubtle)
+        ) {
             CompositionLocalProvider(LocalTextToolbar provides composerTextToolbar) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(IntrinsicSize.Min)
-                        .heightIn(min = 88.dp, max = 176.dp)
-                        .padding(8.dp),
+                        .heightIn(min = 56.dp, max = 160.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val fieldShape = RoundedCornerShape(16.dp)
                     val fieldInteractionSource = remember { MutableInteractionSource() }
-                    val isFieldFocused by fieldInteractionSource.collectIsFocusedAsState()
 
                     BasicTextField(
                         value = inputTextFieldValue,
@@ -906,18 +1003,9 @@ fun NotesComposer(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 72.dp, max = 160.dp)
-                            .clip(fieldShape)
-                            .border(
-                                width = 1.dp,
-                                color = if (isFieldFocused) {
-                                    BrightBlue.copy(alpha = 0.85f)
-                                } else {
-                                    BorderSubtle.copy(alpha = 0.6f)
-                                },
-                                shape = fieldShape
-                            )
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .onFocusChanged { focusState ->
+                                onFocusChanged(focusState.isFocused)
+                            },
                         textStyle = LocalTextStyle.current.copy(
                             color = TextPrimary,
                             fontSize = 14.sp
@@ -958,51 +1046,43 @@ fun NotesComposer(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default)
                     )
 
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(ActionButtonSize),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        if (inputLineCount > 1) {
-                            IconButton(
-                                onClick = onExpand,
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_expand),
-                                    contentDescription = "Expand note editor",
-                                    tint = TextSecondary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-
-                        val sendButtonShape = CircleShape
-                        Surface(
-                            shape = sendButtonShape,
-                            color = PrimaryBlue,
-                            shadowElevation = 4.dp,
+                    if (inputLineCount > 1) {
+                        IconButton(
+                            onClick = onExpand,
                             modifier = Modifier
-                                .size(ActionButtonSize)
-                                .clip(sendButtonShape)
-                                .offset(x = 4.dp)
-                                .clickable { onSendNote() }
+                                .size(36.dp)
+                                .padding(start = 4.dp)
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_send),
-                                    contentDescription = "Send note",
-                                    tint = OnAccent,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            Icon(
+                                painter = painterResource(R.drawable.ic_expand),
+                                contentDescription = "Expand note editor",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
+            }
+        }
+
+        // 2. Separate Send Button matching FAB size (56dp), positioned directly beneath FAB (at end = 16dp)
+        val sendButtonShape = CircleShape
+        Surface(
+            shape = sendButtonShape,
+            color = PrimaryBlue,
+            shadowElevation = 4.dp,
+            modifier = Modifier
+                .size(ActionButtonSize)
+                .clip(sendButtonShape)
+                .clickable { onSendNote() }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_send),
+                    contentDescription = "Send note",
+                    tint = OnAccent,
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
     }
@@ -1158,7 +1238,8 @@ fun NotesEmptyState(
     searchQuery: String,
     selectedFilter: NoteFilter,
     modifier: Modifier = Modifier,
-    isFavorites: Boolean = false
+    isFavorites: Boolean = false,
+    isBin: Boolean = false
 ) {
     Column(
         modifier = modifier
@@ -1168,21 +1249,31 @@ fun NotesEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        val iconRes = if (isSearchActive && searchQuery.isNotBlank()) {
+            R.drawable.ic_search
+        } else if (isBin) {
+            R.drawable.ic_delete
+        } else {
+            R.drawable.ic_chat
+        }
+
         Icon(
-            painter = painterResource(if (isSearchActive && searchQuery.isNotBlank()) R.drawable.ic_search else R.drawable.ic_chat),
+            painter = painterResource(iconRes),
             contentDescription = null,
             tint = TextMuted,
             modifier = Modifier.size(64.dp)
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = if (isFavorites) {
-                if (isSearchActive && searchQuery.isNotBlank()) "No matching favorites" else "No favorites yet"
+            text = if (isBin) {
+                if (isSearchActive && searchQuery.isNotBlank()) "No notes matching \"$searchQuery\"" else "Bin is empty"
+            } else if (isFavorites) {
+                if (isSearchActive && searchQuery.isNotBlank()) "No matching favorites" else "No Favorites yet"
             } else if (isSearchActive && searchQuery.isNotBlank()) {
                 "No notes matching \"$searchQuery\""
             } else {
                 when (selectedFilter) {
-                    NoteFilter.ALL, NoteFilter.NOTES -> "No notes yet"
+                    NoteFilter.ALL, NoteFilter.NOTES -> "No Notes yet"
                     NoteFilter.FIELDS_VALUES -> "No Fields-Values yet"
                     NoteFilter.LISTS -> "No Lists yet"
                 }

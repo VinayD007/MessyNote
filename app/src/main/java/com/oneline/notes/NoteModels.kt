@@ -38,7 +38,8 @@ data class NoteItem(
     var title: String? = null,
     var fieldItems: MutableList<FieldValueEntry> = mutableListOf(),
     var listItems: MutableList<ListRowEntry> = mutableListOf(),
-    var favorite: Boolean = false
+    var favorite: Boolean = false,
+    var isDeleted: Boolean = false
 )
 
 fun NoteItem.getSortedFieldItems(): List<FieldValueEntry> {
@@ -79,11 +80,12 @@ fun filterNotes(
     filter: NoteFilter,
     searchQuery: String = ""
 ): List<NoteItem> {
+    val activeNotes = notes.filter { !it.isDeleted }
     val baseList = when (filter) {
-        NoteFilter.ALL -> notes
-        NoteFilter.NOTES -> notes.filter { it.type == NoteType.NORMAL }
-        NoteFilter.FIELDS_VALUES -> notes.filter { it.type == NoteType.FIELD_VALUE }
-        NoteFilter.LISTS -> notes.filter { it.type == NoteType.LIST }
+        NoteFilter.ALL -> activeNotes
+        NoteFilter.NOTES -> activeNotes.filter { it.type == NoteType.NORMAL }
+        NoteFilter.FIELDS_VALUES -> activeNotes.filter { it.type == NoteType.FIELD_VALUE }
+        NoteFilter.LISTS -> activeNotes.filter { it.type == NoteType.LIST }
     }
     if (searchQuery.isBlank()) {
         return baseList
@@ -112,12 +114,40 @@ fun favoritesFor(
     notes: List<NoteItem>,
     query: String = ""
 ): List<NoteItem> {
-    val favorites = notes.filter { it.favorite }
+    val favorites = notes.filter { it.favorite && !it.isDeleted }
     if (query.isBlank()) {
         return favorites
     }
     val q = query.trim()
     return favorites.filter { note ->
+        if (note.type == NoteType.FIELD_VALUE) {
+            (note.title?.contains(q, ignoreCase = true) == true) ||
+            note.fieldItems.any {
+                it.field.contains(q, ignoreCase = true) || it.value.contains(q, ignoreCase = true)
+            } ||
+            note.text.contains(q, ignoreCase = true)
+        } else if (note.type == NoteType.LIST) {
+            (note.title?.contains(q, ignoreCase = true) == true) ||
+            note.listItems.any {
+                it.value.contains(q, ignoreCase = true)
+            } ||
+            note.text.contains(q, ignoreCase = true)
+        } else {
+            note.text.contains(q, ignoreCase = true)
+        }
+    }
+}
+
+fun binNotesFor(
+    notes: List<NoteItem>,
+    query: String = ""
+): List<NoteItem> {
+    val binNotes = notes.filter { it.isDeleted }
+    if (query.isBlank()) {
+        return binNotes
+    }
+    val q = query.trim()
+    return binNotes.filter { note ->
         if (note.type == NoteType.FIELD_VALUE) {
             (note.title?.contains(q, ignoreCase = true) == true) ||
             note.fieldItems.any {
@@ -165,4 +195,11 @@ fun getDisplayedFavorites(
     query: String = ""
 ): List<NoteItem> {
     return orderNotesNewestFirst(favoritesFor(notes, query))
+}
+
+fun getDisplayedBinNotes(
+    notes: List<NoteItem>,
+    query: String = ""
+): List<NoteItem> {
+    return orderNotesNewestFirst(binNotesFor(notes, query))
 }

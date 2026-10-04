@@ -2421,7 +2421,7 @@ fun DeleteConfirmDialog(
         shape = RoundedCornerShape(28.dp),
         title = {
             Text(
-                text = if (count == 1) "Delete 1 note?" else "Delete $count notes?",
+                text = if (count == 1) "Move 1 note to bin?" else "Move $count notes to bin?",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 24.sp,
                 color = TextPrimary
@@ -2429,7 +2429,7 @@ fun DeleteConfirmDialog(
         },
         text = {
             Text(
-                text = if (count == 1) "Are you sure you want to delete this note?" else "Are you sure you want to delete these $count notes?",
+                text = if (count == 1) "Are you sure you want to move this note to the bin?" else "Are you sure you want to move these $count notes to the bin?",
                 color = TextSecondary,
                 fontSize = 16.sp,
                 lineHeight = 22.sp,
@@ -2439,7 +2439,7 @@ fun DeleteConfirmDialog(
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(
-                    text = "Delete",
+                    text = "Move to bin",
                     color = DestructiveAction,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
@@ -2458,6 +2458,136 @@ fun DeleteConfirmDialog(
         }
     )
 }
+
+// =============================================================================
+// Empty Bin Confirmation Dialog
+// =============================================================================
+@Composable
+fun EmptyBinConfirmDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(28.dp),
+        title = {
+            Text(
+                text = "Empty Bin?",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp,
+                color = TextPrimary
+            )
+        },
+        text = {
+            Text(
+                text = "All notes in the bin will be permanently deleted.",
+                color = TextSecondary,
+                fontSize = 16.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.Normal
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    text = "Empty Bin",
+                    color = DestructiveAction,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    text = "Cancel",
+                    color = TextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    )
+}
+
+// =============================================================================
+// Bin Note Options Bottom Sheet (Restore, Delete permanently)
+// =============================================================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BinNoteOptionsBottomSheet(
+    onDismiss: () -> Unit,
+    onRestore: () -> Unit,
+    onDeletePermanently: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = TextSecondary) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                text = "Note Options",
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                color = TextPrimary,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(SurfaceCard)
+            ) {
+                // 1. Restore
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onRestore() },
+                    color = Color.Transparent
+                ) {
+                    Text(
+                        text = "Restore",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextPrimary,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                    )
+                }
+
+                HorizontalDivider(color = BorderSubtle.copy(alpha = 0.5f), thickness = 0.8.dp)
+
+                // 2. Delete permanently
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onDeletePermanently() },
+                    color = Color.Transparent
+                ) {
+                    Text(
+                        text = "Delete permanently",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = DestructiveAction,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 
 // =============================================================================
 // Discard Confirmation Dialog

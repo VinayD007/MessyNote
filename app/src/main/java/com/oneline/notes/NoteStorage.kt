@@ -93,7 +93,8 @@ fun parseNotesFromJson(jsonString: String): ParseNotesResult {
                 title = title ?: if (type == NoteType.FIELD_VALUE && items.isNotEmpty()) items.first().field else null,
                 fieldItems = items,
                 listItems = listRows,
-                favorite = obj.optBoolean("favorite", false)
+                favorite = obj.optBoolean("favorite", false),
+                isDeleted = obj.optBoolean("isDeleted", false)
             )
             list.add(note)
         } catch (_: Exception) {
@@ -127,6 +128,7 @@ fun notesToJson(notes: List<NoteItem>): String {
             put("spans", spansToJson(note.spans))
             put("type", note.type.name)
             put("favorite", note.favorite)
+            put("isDeleted", note.isDeleted)
             if (note.title != null) put("title", note.title)
             if (note.fieldItems.isNotEmpty()) {
                 val itemsArray = JSONArray()
@@ -159,11 +161,20 @@ fun notesToJson(notes: List<NoteItem>): String {
     return array.toString(2)
 }
 
+fun softDeleteNotes(notes: List<NoteItem>, targetIds: Set<String>): List<NoteItem> {
+    return notes.map { if (it.id in targetIds) it.copy(isDeleted = true) else it }
+}
+
+fun restoreNotes(notes: List<NoteItem>, targetIds: Set<String>): List<NoteItem> {
+    return notes.map { if (it.id in targetIds) it.copy(isDeleted = false) else it }
+}
+
 fun saveNotesToStorage(context: Context, notes: List<NoteItem>) {
     try {
+        val snapshot = notes.toList()
         val targetFile = File(context.filesDir, STORAGE_FILE)
         val tempFile = File(context.filesDir, "$STORAGE_FILE.tmp")
-        tempFile.writeText(notesToJson(notes))
+        tempFile.writeText(notesToJson(snapshot))
         if (!tempFile.renameTo(targetFile)) {
             targetFile.delete()
             tempFile.renameTo(targetFile)

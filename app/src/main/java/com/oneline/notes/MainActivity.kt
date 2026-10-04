@@ -1,3 +1,4 @@
+// Messy Note - Auto-sync verification check
 package com.oneline.notes
 
 import android.app.Activity
@@ -195,6 +196,13 @@ fun OneLineNotesScreen(
     val favSearchFocusRequester = remember { FocusRequester() }
     val favListState = rememberLazyListState()
 
+    // Bin Page & Search States
+    var isBinPage by rememberSaveable { mutableStateOf(false) }
+    var isBinSearchActive by rememberSaveable { mutableStateOf(false) }
+    var binSearchQuery by rememberSaveable { mutableStateOf("") }
+    val binSearchFocusRequester = remember { FocusRequester() }
+    val binListState = rememberLazyListState()
+
     // Clear focus and hide keyboard when selection mode starts
     LaunchedEffect(isMultiSelectMode) {
         if (isMultiSelectMode) {
@@ -211,10 +219,29 @@ fun OneLineNotesScreen(
         }
     }
 
+    // Clear selection and auto-focus bin search when opened
+    LaunchedEffect(isBinSearchActive) {
+        selectedNoteIds.clear()
+        if (isBinSearchActive) {
+            binSearchFocusRequester.requestFocus()
+        }
+    }
+
     // Open favorites scrolled to top (newest first); return to home scrolled to top
     LaunchedEffect(isFavoritesPage) {
         if (isFavoritesPage) {
             favListState.scrollToItem(0)
+        } else {
+            if (notes.isNotEmpty()) {
+                listState.scrollToItem(0)
+            }
+        }
+    }
+
+    // Open bin scrolled to top (newest first); return to home scrolled to top
+    LaunchedEffect(isBinPage) {
+        if (isBinPage) {
+            binListState.scrollToItem(0)
         } else {
             if (notes.isNotEmpty()) {
                 listState.scrollToItem(0)
@@ -232,11 +259,14 @@ fun OneLineNotesScreen(
     var showNewListDialog by remember { mutableStateOf(false) }
     var showEditListDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showEmptyBinDialog by remember { mutableStateOf(false) }
+    var showBinBottomSheet by remember { mutableStateOf(false) }
+    var activeBinNote by remember { mutableStateOf<NoteItem?>(null) }
     var isPlusMenuExpanded by remember { mutableStateOf(false) }
     var notesToDelete by remember { mutableStateOf<List<NoteItem>>(emptyList()) }
 
     // Handle system back gesture in prioritized order:
-    // expanded composer -> selection mode -> search -> dialogs/popup -> Favorites page -> home
+    // expanded composer -> selection mode -> search -> dialogs/popup -> Favorites page -> Bin page -> home
     val anyDialogShowing = showBottomSheet ||
         showPartialCopyDialog ||
         showEditDialog ||
@@ -244,12 +274,15 @@ fun OneLineNotesScreen(
         showEditFieldDialog ||
         showNewListDialog ||
         showEditListDialog ||
-        showDeleteConfirmDialog
+        showDeleteConfirmDialog ||
+        showEmptyBinDialog ||
+        showBinBottomSheet
     val isEditPageShowing = showEditDialog || showEditFieldDialog || showEditListDialog
-    val activeSearch = if (isFavoritesPage) isFavSearchActive else isSearchActive
+    val activeSearch = if (isFavoritesPage) isFavSearchActive else if (isBinPage) isBinSearchActive else isSearchActive
     val canStartThemeReveal = !anyDialogShowing &&
         !isPlusMenuExpanded &&
         !isFavoritesPage &&
+        !isBinPage &&
         !isSearchActive &&
         !isComposerExpanded &&
         !isMultiSelectMode
@@ -313,7 +346,7 @@ fun OneLineNotesScreen(
         }
     }
 
-    BackHandler(enabled = !isThemeTransitioning && !isEditPageShowing && (isComposerExpanded || isPlusMenuExpanded || isMultiSelectMode || activeSearch || anyDialogShowing || isFavoritesPage)) {
+    BackHandler(enabled = !isThemeTransitioning && !isEditPageShowing && (isComposerExpanded || isPlusMenuExpanded || isMultiSelectMode || activeSearch || anyDialogShowing || isFavoritesPage || isBinPage)) {
         when {
             isComposerExpanded -> {
                 focusManager.clearFocus(force = true)
@@ -330,6 +363,9 @@ fun OneLineNotesScreen(
                 if (isFavoritesPage) {
                     favSearchQuery = ""
                     isFavSearchActive = false
+                } else if (isBinPage) {
+                    binSearchQuery = ""
+                    isBinSearchActive = false
                 } else {
                     searchQuery = ""
                     isSearchActive = false
@@ -339,12 +375,20 @@ fun OneLineNotesScreen(
                 showBottomSheet = false
                 showPartialCopyDialog = false
                 showDeleteConfirmDialog = false
+                showEmptyBinDialog = false
+                showBinBottomSheet = false
             }
             isFavoritesPage -> {
                 selectedNoteIds.clear()
                 favSearchQuery = ""
                 isFavSearchActive = false
                 isFavoritesPage = false
+            }
+            isBinPage -> {
+                selectedNoteIds.clear()
+                binSearchQuery = ""
+                isBinSearchActive = false
+                isBinPage = false
             }
         }
     }
@@ -373,6 +417,16 @@ fun OneLineNotesScreen(
         derivedStateOf {
             getDisplayedFavorites(notes, favSearchQuery)
         }
+    }
+
+    val displayedBinNotes by remember {
+        derivedStateOf {
+            getDisplayedBinNotes(notes, binSearchQuery)
+        }
+    }
+
+    LaunchedEffect(binSearchQuery) {
+        binListState.scrollToItem(0)
     }
 
     // Load initial notes from storage (no default welcome note), open scrolled to top
@@ -445,7 +499,7 @@ fun OneLineNotesScreen(
         val blurredBackdropLayer = rememberGraphicsLayer()
         var scaffoldOriginInRoot by remember { mutableStateOf(Offset.Zero) }
         var composerBlurBounds by remember { mutableStateOf<Rect?>(null) }
-        val showComposer = !isComposerExpanded && !isFavoritesPage && !isSearchActive && !isMultiSelectMode
+        val showComposer = !isComposerExpanded && !isFavoritesPage && !isBinPage && !isSearchActive && !isMultiSelectMode
         val density = LocalDensity.current
         val blurRadiusPx = with(density) { 14.dp.toPx() }
         val panelCornerRadiusPx = with(density) { 22.dp.toPx() }
@@ -557,6 +611,39 @@ fun OneLineNotesScreen(
                                 }
                             )
                         }
+                    } else if (isBinPage) {
+                        if (isBinSearchActive) {
+                            SearchBarHeader(
+                                searchQuery = binSearchQuery,
+                                onSearchQueryChange = { binSearchQuery = it },
+                                searchFocusRequester = binSearchFocusRequester,
+                                onExitSearch = {
+                                    binSearchQuery = ""
+                                    isBinSearchActive = false
+                                },
+                                onSearchKeyboardDone = {
+                                    keyboardController?.hide()
+                                },
+                                placeholder = "Search bin..."
+                            )
+                        } else {
+                            BinHeader(
+                                onBack = {
+                                    selectedNoteIds.clear()
+                                    binSearchQuery = ""
+                                    isBinSearchActive = false
+                                    isBinPage = false
+                                },
+                                onSearchTrigger = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    isBinSearchActive = true
+                                },
+                                onDeleteAll = {
+                                    showEmptyBinDialog = true
+                                },
+                                hasNotes = notes.any { it.isDeleted }
+                            )
+                        }
                     } else if (!isSearchActive) {
                         NormalHeader(
                             isDarkTheme = renderedDarkTheme,
@@ -571,6 +658,11 @@ fun OneLineNotesScreen(
                                 focusManager.clearFocus(force = true)
                                 keyboardController?.hide()
                                 isFavoritesPage = true
+                            },
+                            onBinClick = {
+                                focusManager.clearFocus(force = true)
+                                keyboardController?.hide()
+                                isBinPage = true
                             }
                         )
                     } else {
@@ -712,7 +804,7 @@ fun OneLineNotesScreen(
                 showTransientMessage("Copied: $snippet")
             }
 
-            if (!isFavoritesPage) {
+            if (!isFavoritesPage && !isBinPage) {
                 // Home Content Filter Control: [ All ] [ Notes ] [ Fields-Values ]
                 HomeFilterControl(
                     selectedFilter = selectedFilter,
@@ -871,6 +963,36 @@ fun OneLineNotesScreen(
                         }
                     }
                 )
+            } else if (isBinPage) {
+                // Bin Page List
+                val handleBinNoteClick: (NoteItem) -> Unit = { note ->
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    activeBinNote = note
+                    showBinBottomSheet = true
+                }
+
+                NotesList(
+                    displayedNotes = displayedBinNotes,
+                    listState = binListState,
+                    selectedNoteIds = selectedNoteIds,
+                    isMultiSelectMode = false,
+                    isSearchActive = isBinSearchActive,
+                    hasBottomFab = false,
+                    onNoteClick = handleBinNoteClick,
+                    onNoteLongClick = {},
+                    onMonoTap = handleMonoTap,
+                    emptyState = {
+                        NotesEmptyState(
+                            isSearchActive = isBinSearchActive,
+                            searchQuery = binSearchQuery,
+                            selectedFilter = NoteFilter.ALL,
+                            isBin = true
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
             } else {
                 // Favorites Page List (reusing NotesList without filter chips, without filter swipe, without "+")
                 NotesList(
@@ -935,6 +1057,11 @@ fun OneLineNotesScreen(
                     keyboardController?.hide()
                     isComposerExpanded = true
                 },
+                onFocusChanged = { isFocused ->
+                    if (isFocused && isPlusMenuExpanded) {
+                        isPlusMenuExpanded = false
+                    }
+                },
                 onPanelBoundsChanged = { bounds -> composerBlurBounds = bounds },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -948,7 +1075,7 @@ fun OneLineNotesScreen(
         }
 
         // Floating Snackbar Host Overlay
-        val isComposerAndFabVisible = !isFavoritesPage && !isSearchActive && !isMultiSelectMode
+        val isComposerAndFabVisible = !isFavoritesPage && !isBinPage && !isSearchActive && !isMultiSelectMode
         val snackbarBottomPadding = if (isComposerAndFabVisible) {
             (if (composerHeightPx > 0) composerHeightDp else 62.dp) + 64.dp
         } else {
@@ -1217,11 +1344,12 @@ fun OneLineNotesScreen(
             },
             onConfirm = {
                 val toDelete = notesToDelete.toList()
-                val indexedToDelete = toDelete.map { note ->
-                    Pair(notes.indexOf(note), note)
-                }.filter { it.first != -1 }
-
-                notes.removeAll(toDelete.toSet())
+                val targetIds = toDelete.map { it.id }.toSet()
+                for (i in notes.indices) {
+                    if (notes[i].id in targetIds) {
+                        notes[i] = notes[i].copy(isDeleted = true)
+                    }
+                }
                 saveNotesToStorage(context, notes)
                 showDeleteConfirmDialog = false
                 notesToDelete = emptyList()
@@ -1229,21 +1357,60 @@ fun OneLineNotesScreen(
 
                 coroutineScope.launch {
                     snackbarHostState.currentSnackbarData?.dismiss()
-                    val message = if (indexedToDelete.size == 1) "Note deleted" else "${indexedToDelete.size} notes deleted"
+                    val message = if (toDelete.size == 1) "Moved note to bin" else "Moved ${toDelete.size} notes to bin"
                     val result = snackbarHostState.showSnackbar(
                         message = message,
                         actionLabel = "Undo",
                         duration = SnackbarDuration.Short
                     )
                     if (result == SnackbarResult.ActionPerformed) {
-                        val sortedToRestore = indexedToDelete.sortedBy { it.first }
-                        for ((origIdx, n) in sortedToRestore) {
-                            val insertAt = origIdx.coerceIn(0, notes.size)
-                            notes.add(insertAt, n)
+                        for (i in notes.indices) {
+                            if (notes[i].id in targetIds) {
+                                notes[i] = notes[i].copy(isDeleted = false)
+                            }
                         }
                         saveNotesToStorage(context, notes)
                     }
                 }
+            }
+        )
+    }
+
+    if (showEmptyBinDialog) {
+        EmptyBinConfirmDialog(
+            onDismiss = { showEmptyBinDialog = false },
+            onConfirm = {
+                notes.removeAll { it.isDeleted }
+                saveNotesToStorage(context, notes)
+                showEmptyBinDialog = false
+                showTransientMessage("Bin emptied")
+            }
+        )
+    }
+
+    if (showBinBottomSheet && activeBinNote != null) {
+        val note = activeBinNote!!
+        BinNoteOptionsBottomSheet(
+            onDismiss = {
+                showBinBottomSheet = false
+                activeBinNote = null
+            },
+            onRestore = {
+                val index = notes.indexOfFirst { it.id == note.id }
+                if (index != -1) {
+                    notes[index] = notes[index].copy(isDeleted = false)
+                }
+                saveNotesToStorage(context, notes)
+                showBinBottomSheet = false
+                activeBinNote = null
+                showTransientMessage("Note restored")
+            },
+            onDeletePermanently = {
+                notes.removeAll { it.id == note.id }
+                saveNotesToStorage(context, notes)
+                showBinBottomSheet = false
+                activeBinNote = null
+                showTransientMessage("Note permanently deleted")
             }
         )
     }
