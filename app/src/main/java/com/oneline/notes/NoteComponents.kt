@@ -1,6 +1,7 @@
 package com.oneline.notes
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -8,10 +9,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -19,7 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -34,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -44,6 +50,9 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -62,6 +71,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
@@ -307,9 +317,11 @@ val HeaderRowHeight = 64.dp
 @Composable
 private fun ThemeModeToggle(
     isDarkTheme: Boolean,
-    onToggle: () -> Unit
+    enabled: Boolean,
+    onToggle: () -> Unit,
+    onPositioned: (Offset) -> Unit
 ) {
-    val progress = LocalThemeTransitionProgress.current
+    val progress = LocalThemeTransitionProgress.current.value
     val thumbOffset = lerp(28.dp, 4.dp, progress)
 
     Surface(
@@ -321,9 +333,21 @@ private fun ThemeModeToggle(
             .height(34.dp)
             .toggleable(
                 value = isDarkTheme,
+                enabled = enabled,
                 role = Role.Switch,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
                 onValueChange = { onToggle() }
             )
+            .onGloballyPositioned { coordinates ->
+                val topLeft = coordinates.positionInWindow()
+                onPositioned(
+                    topLeft + Offset(
+                        x = coordinates.size.width / 2f,
+                        y = coordinates.size.height / 2f
+                    )
+                )
+            }
             .semantics {
                 contentDescription = if (isDarkTheme) "Dark theme enabled" else "Light theme enabled"
             }
@@ -364,6 +388,8 @@ private fun ThemeModeToggle(
 fun NormalHeader(
     isDarkTheme: Boolean,
     onThemeToggle: () -> Unit,
+    themeToggleEnabled: Boolean = true,
+    onThemeTogglePositioned: (Offset) -> Unit = {},
     onSearchTrigger: () -> Unit,
     onFavoritesClick: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -389,7 +415,9 @@ fun NormalHeader(
             Spacer(modifier = Modifier.width(10.dp))
             ThemeModeToggle(
                 isDarkTheme = isDarkTheme,
-                onToggle = onThemeToggle
+                enabled = themeToggleEnabled,
+                onToggle = onThemeToggle,
+                onPositioned = onThemeTogglePositioned
             )
         }
 
@@ -592,10 +620,13 @@ fun SearchBarHeader(
 fun HomeFilterControl(
     selectedFilter: NoteFilter,
     onFilterSelected: (NoteFilter) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    scrollState: ScrollState = rememberScrollState(),
+    isRevealLayer: Boolean = false
 ) {
-    val scrollState = rememberScrollState()
     val filters = NoteFilter.entries
+
+    val isLight = LocalMessNoteColors.current.bg == Color(0xFFFFFFFF)
 
     Row(
         modifier = modifier
@@ -609,9 +640,11 @@ fun HomeFilterControl(
             val isSelected = selectedFilter == filter
             val bringIntoViewRequester = remember { BringIntoViewRequester() }
 
-            LaunchedEffect(isSelected) {
-                if (isSelected) {
-                    bringIntoViewRequester.bringIntoView()
+            if (!isRevealLayer) {
+                LaunchedEffect(isSelected) {
+                    if (isSelected) {
+                        bringIntoViewRequester.bringIntoView()
+                    }
                 }
             }
 
@@ -625,13 +658,26 @@ fun HomeFilterControl(
                 checked = isSelected,
                 onCheckedChange = { onFilterSelected(filter) },
                 shapes = shapes,
-                colors = ToggleButtonDefaults.toggleButtonColors(
-                    containerColor = SurfaceCard,
-                    contentColor = TextSecondary,
-                    checkedContainerColor = PrimaryBlue,
-                    checkedContentColor = OnAccent
-                ),
-                border = BorderStroke(1.dp, if (isSelected) BrightBlue else BorderSubtle),
+                colors = if (isLight) {
+                    ToggleButtonDefaults.toggleButtonColors(
+                        containerColor = Color.White,
+                        contentColor = BrightBlue,
+                        checkedContainerColor = BrightBlue,
+                        checkedContentColor = Color.White
+                    )
+                } else {
+                    ToggleButtonDefaults.toggleButtonColors(
+                        containerColor = SurfaceCard,
+                        contentColor = BrightBlue,
+                        checkedContainerColor = Color(0xFF1C1C1E),
+                        checkedContentColor = BrightBlue
+                    )
+                },
+                border = if (isLight) {
+                    if (isSelected) null else BorderStroke(1.dp, BrightBlue)
+                } else {
+                    if (isSelected) BorderStroke(1.dp, BrightBlue) else null
+                },
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
                 modifier = Modifier
                     .height(44.dp)
@@ -641,7 +687,7 @@ fun HomeFilterControl(
                     text = filter.label,
                     fontFamily = GoogleSans,
                     fontSize = 13.sp,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     softWrap = false
                 )
@@ -654,19 +700,27 @@ fun HomeFilterControl(
 // =============================================================================
 // Interactive Swipeable Snackbar with Rounded Borders (Dismiss on swipe left or right)
 // =============================================================================
+class SwipeableSnackbarState internal constructor() {
+    internal val offsetX = Animatable(0f)
+    internal val alpha = Animatable(1f)
+}
+
+@Composable
+fun rememberSwipeableSnackbarState(): SwipeableSnackbarState = remember {
+    SwipeableSnackbarState()
+}
+
 @Composable
 fun SwipeableSnackbar(
     snackbarData: SnackbarData,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    state: SwipeableSnackbarState
 ) {
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val dismissThreshold = with(density) { 72.dp.toPx() }
-
-    val offsetX = remember { Animatable(0f) }
-    val alpha = remember { Animatable(1f) }
 
     Surface(
         shape = RoundedCornerShape(24.dp),
@@ -676,41 +730,41 @@ fun SwipeableSnackbar(
         modifier = Modifier
             .fillMaxWidth()
             .height(48.dp)
-            .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+            .offset { IntOffset(state.offsetX.value.roundToInt(), 0) }
             .graphicsLayer {
-                this.alpha = alpha.value
+                this.alpha = state.alpha.value
             }
             .pointerInput(snackbarData) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
                         coroutineScope.launch {
-                            if (abs(offsetX.value) > dismissThreshold) {
-                                val targetX = if (offsetX.value > 0) screenWidthPx else -screenWidthPx
+                            if (abs(state.offsetX.value) > dismissThreshold) {
+                                val targetX = if (state.offsetX.value > 0) screenWidthPx else -screenWidthPx
                                 launch {
-                                    alpha.animateTo(0f, animationSpec = tween(140))
+                                    state.alpha.animateTo(0f, animationSpec = tween(140))
                                 }
-                                offsetX.animateTo(targetX, animationSpec = tween(160))
+                                state.offsetX.animateTo(targetX, animationSpec = tween(160))
                                 onDismiss()
                             } else {
                                 launch {
-                                    alpha.animateTo(1f, animationSpec = tween(150))
+                                    state.alpha.animateTo(1f, animationSpec = tween(150))
                                 }
-                                offsetX.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                                state.offsetX.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
                             }
                         }
                     },
                     onDragCancel = {
                         coroutineScope.launch {
-                            launch { alpha.animateTo(1f) }
-                            offsetX.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                            launch { state.alpha.animateTo(1f) }
+                            state.offsetX.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
                         }
                     },
                     onHorizontalDrag = { change, dragAmount ->
                         change.consume()
                         coroutineScope.launch {
-                            offsetX.snapTo(offsetX.value + dragAmount)
-                            val dragRatio = (abs(offsetX.value) / dismissThreshold).coerceIn(0f, 1f)
-                            alpha.snapTo(1f - (dragRatio * 0.4f))
+                            state.offsetX.snapTo(state.offsetX.value + dragAmount)
+                            val dragRatio = (abs(state.offsetX.value) / dismissThreshold).coerceIn(0f, 1f)
+                            state.alpha.snapTo(1f - (dragRatio * 0.4f))
                         }
                     }
                 )
@@ -770,121 +824,330 @@ fun NotesComposer(
     inputSpans: List<TextSpan>,
     onSpansChange: (List<TextSpan>) -> Unit,
     onSendNote: () -> Unit,
-    onNewFieldClick: () -> Unit = {},
+    onExpand: () -> Unit,
+    onPanelBoundsChanged: (Rect) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    // Note Typing / Input Box
-    Box(
+    var inputLineCount by remember { mutableIntStateOf(1) }
+    val view = LocalView.current
+    val currentInputValue = rememberUpdatedState(inputTextFieldValue)
+    val currentSpansState = rememberUpdatedState(inputSpans)
+    val composerTextToolbar = remember(view) {
+        MonoTextToolbar(
+            view = view,
+            onMonoRequested = {
+                val value = currentInputValue.value
+                val selection = value.selection
+                if (!selection.collapsed && selection.length > 0) {
+                    onSpansChange(
+                        toggleMonospaceSpan(
+                            value.text.length,
+                            currentSpansState.value,
+                            selection.min,
+                            selection.max
+                        )
+                    )
+                    onInputValueChange(value.copy(selection = selection))
+                }
+            },
+            canApplyMono = {
+                val selection = currentInputValue.value.selection
+                !selection.collapsed && selection.length > 0
+            }
+        )
+    }
+
+    val currentMonoText = MonospaceText
+    val currentMonoBg = MonospaceBg
+    val panelShape = RoundedCornerShape(22.dp)
+
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
-    ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val view = LocalView.current
-                val currentInputValue = rememberUpdatedState(inputTextFieldValue)
-                val currentSpansState = rememberUpdatedState(inputSpans)
-
-                val composerTextToolbar = remember(view) {
-                    MonoTextToolbar(
-                        view = view,
-                        onMonoRequested = {
-                            val valNow = currentInputValue.value
-                            val sel = valNow.selection
-                            if (!sel.collapsed && sel.length > 0) {
-                                onSpansChange(
-                                    toggleMonospaceSpan(
-                                        valNow.text.length,
-                                        currentSpansState.value,
-                                        sel.min,
-                                        sel.max
-                                    )
-                                )
-                                onInputValueChange(valNow.copy(selection = sel))
-                            }
-                        },
-                        canApplyMono = {
-                            val sel = currentInputValue.value.selection
-                            !sel.collapsed && sel.length > 0
-                        }
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .onGloballyPositioned { coordinates ->
+                val position = coordinates.positionInRoot()
+                onPanelBoundsChanged(
+                    Rect(
+                        left = position.x,
+                        top = position.y,
+                        right = position.x + coordinates.size.width,
+                        bottom = position.y + coordinates.size.height
                     )
-                }
+                )
+            },
+        shape = panelShape,
+        color = BgDark.copy(alpha = 0.78f),
+        border = BorderStroke(1.dp, BorderSubtle.copy(alpha = 0.45f))
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            CompositionLocalProvider(LocalTextToolbar provides composerTextToolbar) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min)
+                        .heightIn(min = 88.dp, max = 176.dp)
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val fieldShape = RoundedCornerShape(16.dp)
+                    val fieldInteractionSource = remember { MutableInteractionSource() }
+                    val isFieldFocused by fieldInteractionSource.collectIsFocusedAsState()
 
-                val currentMonoText = MonospaceText
-                val currentMonoBg = MonospaceBg
-
-                CompositionLocalProvider(LocalTextToolbar provides composerTextToolbar) {
-                    OutlinedTextField(
+                    BasicTextField(
                         value = inputTextFieldValue,
-                        onValueChange = { newVal ->
+                        onValueChange = { newValue ->
                             val oldText = inputTextFieldValue.text
-                            val newText = newVal.text
+                            val newText = newValue.text
                             if (oldText != newText) {
                                 onSpansChange(adjustSpansForTextChange(oldText, newText, inputSpans))
                             }
-                            onInputValueChange(newVal)
+                            onInputValueChange(newValue)
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 52.dp),
-                        placeholder = {
-                            Text(
-                                "Type a note...",
-                                color = TextMuted,
-                                fontSize = 14.sp
+                            .heightIn(min = 72.dp, max = 160.dp)
+                            .clip(fieldShape)
+                            .border(
+                                width = 1.dp,
+                                color = if (isFieldFocused) {
+                                    BrightBlue.copy(alpha = 0.85f)
+                                } else {
+                                    BorderSubtle.copy(alpha = 0.6f)
+                                },
+                                shape = fieldShape
                             )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        textStyle = LocalTextStyle.current.copy(
+                            color = TextPrimary,
+                            fontSize = 14.sp
+                        ),
+                        onTextLayout = { result ->
+                            val lineCount = result.lineCount.coerceAtLeast(1)
+                            if (inputLineCount != lineCount) inputLineCount = lineCount
                         },
+                        interactionSource = fieldInteractionSource,
+                        cursorBrush = SolidColor(BrightBlue),
                         visualTransformation = remember(inputSpans, currentMonoText, currentMonoBg) {
                             VisualTransformation { text ->
                                 TransformedText(
-                                    buildMonospaceAnnotatedString(text.text, inputSpans, monoColor = currentMonoText, monoBackground = currentMonoBg),
+                                    buildMonospaceAnnotatedString(
+                                        text.text,
+                                        inputSpans,
+                                        monoColor = currentMonoText,
+                                        monoBackground = currentMonoBg
+                                    ),
                                     OffsetMapping.Identity
                                 )
                             }
                         },
-                        shape = CircleShape,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = SurfaceCard,
-                            unfocusedContainerColor = SurfaceCard,
-                            focusedBorderColor = BrightBlue,
-                            unfocusedBorderColor = BorderSubtle,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                            cursorColor = BrightBlue
-                        ),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { onSendNote() })
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (inputTextFieldValue.text.isEmpty()) {
+                                    Text(
+                                        "Type a note...",
+                                        color = TextMuted,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                        singleLine = false,
+                        maxLines = 4,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default)
                     )
-                }
 
-                Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
-                // Send Button
-                val sendButtonShape = CircleShape
-                Surface(
-                    shape = sendButtonShape,
-                    color = PrimaryBlue,
-                    shadowElevation = 4.dp,
-                    modifier = Modifier
-                        .size(ActionButtonSize)
-                        .clip(sendButtonShape)
-                        .clickable { onSendNote() }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_send),
-                            contentDescription = "Send note",
-                            tint = OnAccent,
-                            modifier = Modifier.size(20.dp)
-                        )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(ActionButtonSize),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        if (inputLineCount > 1) {
+                            IconButton(
+                                onClick = onExpand,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_expand),
+                                    contentDescription = "Expand note editor",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        val sendButtonShape = CircleShape
+                        Surface(
+                            shape = sendButtonShape,
+                            color = PrimaryBlue,
+                            shadowElevation = 4.dp,
+                            modifier = Modifier
+                                .size(ActionButtonSize)
+                                .clip(sendButtonShape)
+                                .offset(x = 4.dp)
+                                .clickable { onSendNote() }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_send),
+                                    contentDescription = "Send note",
+                                    tint = OnAccent,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+fun ExpandedNoteComposer(
+    inputTextFieldValue: TextFieldValue,
+    onInputValueChange: (TextFieldValue) -> Unit,
+    inputSpans: List<TextSpan>,
+    onSpansChange: (List<TextSpan>) -> Unit,
+    onClose: () -> Unit,
+    onSendNote: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val view = LocalView.current
+    val focusRequester = remember { FocusRequester() }
+    val currentInputValue = rememberUpdatedState(inputTextFieldValue)
+    val currentSpansState = rememberUpdatedState(inputSpans)
+    val currentMonoText = MonospaceText
+    val currentMonoBg = MonospaceBg
+
+    val composerTextToolbar = remember(view) {
+        MonoTextToolbar(
+            view = view,
+            onMonoRequested = {
+                val value = currentInputValue.value
+                val selection = value.selection
+                if (!selection.collapsed && selection.length > 0) {
+                    onSpansChange(
+                        toggleMonospaceSpan(
+                            value.text.length,
+                            currentSpansState.value,
+                            selection.min,
+                            selection.max
+                        )
+                    )
+                    onInputValueChange(value.copy(selection = selection))
+                }
+            },
+            canApplyMono = {
+                val selection = currentInputValue.value.selection
+                !selection.collapsed && selection.length > 0
+            }
+        )
+    }
+
+    val handleValueChange: (TextFieldValue) -> Unit = { newValue ->
+        val oldText = inputTextFieldValue.text
+        if (oldText != newValue.text) {
+            onSpansChange(adjustSpansForTextChange(oldText, newValue.text, inputSpans))
+        }
+        onInputValueChange(newValue)
+    }
+
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        focusRequester.requestFocus()
+    }
+
+    Surface(
+        modifier = modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+        color = BgDark
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_close),
+                        contentDescription = "Close expanded note editor",
+                        tint = TextPrimary
+                    )
+                }
+                Text(
+                    text = "New note",
+                    color = TextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Button(onClick = onSendNote, shape = CircleShape) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_send),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Send")
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            CompositionLocalProvider(LocalTextToolbar provides composerTextToolbar) {
+                OutlinedTextField(
+                    value = inputTextFieldValue,
+                    onValueChange = handleValueChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .focusRequester(focusRequester),
+                    placeholder = {
+                        Text("Type a note...", color = TextMuted)
+                    },
+                    visualTransformation = remember(inputSpans, currentMonoText, currentMonoBg) {
+                        VisualTransformation { text ->
+                            TransformedText(
+                                buildMonospaceAnnotatedString(
+                                    text.text,
+                                    inputSpans,
+                                    monoColor = currentMonoText,
+                                    monoBackground = currentMonoBg
+                                ),
+                                OffsetMapping.Identity
+                            )
+                        }
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = SurfaceCard,
+                        unfocusedContainerColor = SurfaceCard,
+                        focusedBorderColor = BrightBlue,
+                        unfocusedBorderColor = BorderSubtle,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        cursorColor = BrightBlue
+                    ),
+                    minLines = 1,
+                    maxLines = Int.MAX_VALUE,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default)
+                )
+            }
+        }
+    }
+}
 
 // =============================================================================
 // Notes Empty State
@@ -943,6 +1206,7 @@ fun NotesList(
     isMultiSelectMode: Boolean,
     isSearchActive: Boolean,
     hasBottomFab: Boolean,
+    bottomOverlayHeight: Dp = 0.dp,
     onNoteClick: (NoteItem) -> Unit,
     onNoteLongClick: (NoteItem) -> Unit,
     onMonoTap: (String) -> Unit,
@@ -951,13 +1215,22 @@ fun NotesList(
     fabOverlay: @Composable (BoxScope.() -> Unit)? = null
 ) {
     Box(modifier = modifier) {
+        val stableItemKeys = remember(displayedNotes) {
+            val occurrences = mutableMapOf<String, Int>()
+            displayedNotes.map { note ->
+                val baseKey = "${note.type.name}:${note.id}"
+                val occurrence = occurrences[baseKey] ?: 0
+                occurrences[baseKey] = occurrence + 1
+                "$baseKey:$occurrence"
+            }
+        }
         val fabButtonHeight = ActionButtonSize
         val fabButtonSpacing = 8.dp
-        val listBottomPadding = if (hasBottomFab) {
+        val listBottomPadding = (if (hasBottomFab) {
             fabButtonHeight + fabButtonSpacing
         } else {
             0.dp
-        }
+        }) + bottomOverlayHeight
 
         if (displayedNotes.isEmpty()) {
             emptyState()
@@ -967,57 +1240,60 @@ fun NotesList(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (isSearchActive) Modifier.imePadding() else Modifier)
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 8.dp),
                 contentPadding = PaddingValues(top = 4.dp, bottom = listBottomPadding),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
-                items(displayedNotes, key = { it.id }) { note ->
+                itemsIndexed(displayedNotes, key = { index, _ -> stableItemKeys[index] }) { index, note ->
                     val isSelected = selectedNoteIds.contains(note.id)
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                        horizontalArrangement = Arrangement.Start,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (isMultiSelectMode) {
-                            if (isSelected) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .clip(CircleShape)
-                                        .background(BrightBlue),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_check),
-                                        contentDescription = "Selected",
-                                        tint = OnAccent,
-                                        modifier = Modifier.size(15.dp)
-                                    )
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.Start,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isMultiSelectMode) {
+                                if (isSelected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(BrightBlue),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_check),
+                                            contentDescription = "Selected",
+                                            tint = OnAccent,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                } else {
+                                    Spacer(modifier = Modifier.width(34.dp))
                                 }
-                                Spacer(modifier = Modifier.width(10.dp))
-                            } else {
-                                Spacer(modifier = Modifier.width(34.dp))
                             }
+
+                            SentNoteBubble(
+                                note = note,
+                                isSelectionMode = isMultiSelectMode,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onNoteClick(note) },
+                                onLongClick = { onNoteLongClick(note) },
+                                onMonoTap = onMonoTap
+                            )
                         }
 
-                        SentNoteBubble(
-                            note = note,
-                            isSelected = isSelected,
-                            isSelectionMode = isMultiSelectMode,
-                            modifier = if (note.type == NoteType.FIELD_VALUE) {
-                                Modifier
-                                    .weight(1f)
-                                    .padding(end = 16.dp)
-                            } else {
-                                Modifier.weight(1f)
-                            },
-                            onClick = { onNoteClick(note) },
-                            onLongClick = { onNoteLongClick(note) },
-                            onMonoTap = onMonoTap
-                        )
+                        if (index < displayedNotes.lastIndex) {
+                            HorizontalDivider(
+                                color = BorderSubtle.copy(alpha = 0.55f),
+                                thickness = 0.8.dp,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                        }
                     }
                 }
             }

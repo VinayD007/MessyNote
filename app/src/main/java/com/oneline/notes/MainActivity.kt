@@ -1,5 +1,7 @@
 package com.oneline.notes
 
+import android.app.Activity
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -7,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.ComposeFoundationFlags
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,10 +17,15 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -27,21 +35,50 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.toArgb
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -50,6 +87,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.oneline.notes.ui.theme.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.snapshotFlow
+import kotlin.math.sqrt
 
 @OptIn(ExperimentalFoundationApi::class)
 class MainActivity : ComponentActivity() {
@@ -72,21 +112,14 @@ class MainActivity : ComponentActivity() {
                 else -> systemDarkTheme
             }
 
-            OneLineNotesTheme(darkTheme = isDarkTheme) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = BgDark
-                ) {
-                    OneLineNotesScreen(
-                        isDarkTheme = isDarkTheme,
-                        onThemeToggle = {
-                            val nextTheme = if (isDarkTheme) "light" else "dark"
-                            themeOverride = nextTheme
-                            themePreferences.edit().putString("theme_mode", nextTheme).apply()
-                        }
-                    )
+            OneLineNotesScreen(
+                isDarkTheme = isDarkTheme,
+                onThemeToggle = {
+                    val nextTheme = if (isDarkTheme) "light" else "dark"
+                    themeOverride = nextTheme
+                    themePreferences.edit().putString("theme_mode", nextTheme).apply()
                 }
-            }
+            )
         }
     }
 }
@@ -99,7 +132,13 @@ fun OneLineNotesScreen(
     isDarkTheme: Boolean,
     onThemeToggle: () -> Unit
 ) {
+    var committedDarkTheme by remember { mutableStateOf(isDarkTheme) }
+    var transitionTarget by remember { mutableStateOf<Boolean?>(null) }
+    val revealAnimation = remember(transitionTarget) { Animatable(0f) }
+    val revealProgress = remember(revealAnimation) { derivedStateOf { revealAnimation.value } }
+
     val context = LocalContext.current
+    val view = LocalView.current
     val clipboardManager = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -116,12 +155,29 @@ fun OneLineNotesScreen(
         }
     }
     val listState = rememberLazyListState()
+    val revealListState = remember(transitionTarget) {
+        LazyListState(
+            firstVisibleItemIndex = listState.firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+        )
+    }
+    val filterScrollState = rememberScrollState()
+    val revealFilterScrollState = remember(transitionTarget) {
+        ScrollState(initial = filterScrollState.value)
+    }
+    val swipeableSnackbarState = rememberSwipeableSnackbarState()
 
     // Notes State
     val notes = remember { mutableStateListOf<NoteItem>() }
     var inputTextFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     var inputSpans by remember { mutableStateOf(listOf<TextSpan>()) }
+    var isComposerExpanded by rememberSaveable { mutableStateOf(false) }
     var composerHeightPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val composerHeightDp = with(density) { composerHeightPx.toDp() }
+    val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val keyboardHeight = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val composerReservedHeight = composerHeightDp + navigationBarHeight + keyboardHeight
 
     // Search State
     var searchQuery by remember { mutableStateOf("") }
@@ -180,12 +236,90 @@ fun OneLineNotesScreen(
     var notesToDelete by remember { mutableStateOf<List<NoteItem>>(emptyList()) }
 
     // Handle system back gesture in prioritized order:
-    // selection mode -> search -> dialogs/popup -> Favorites page -> home
-    val anyDialogShowing = showBottomSheet || showPartialCopyDialog || showDeleteConfirmDialog
+    // expanded composer -> selection mode -> search -> dialogs/popup -> Favorites page -> home
+    val anyDialogShowing = showBottomSheet ||
+        showPartialCopyDialog ||
+        showEditDialog ||
+        showNewFieldDialog ||
+        showEditFieldDialog ||
+        showNewListDialog ||
+        showEditListDialog ||
+        showDeleteConfirmDialog
+    val isEditPageShowing = showEditDialog || showEditFieldDialog || showEditListDialog
     val activeSearch = if (isFavoritesPage) isFavSearchActive else isSearchActive
+    val canStartThemeReveal = !anyDialogShowing &&
+        !isPlusMenuExpanded &&
+        !isFavoritesPage &&
+        !isSearchActive &&
+        !isComposerExpanded &&
+        !isMultiSelectMode
+    val isThemeTransitioning = transitionTarget != null
 
-    BackHandler(enabled = isPlusMenuExpanded || isMultiSelectMode || activeSearch || anyDialogShowing || isFavoritesPage) {
+    val toggleProgress = remember(committedDarkTheme, transitionTarget, revealProgress) {
+        derivedStateOf {
+            val start = if (committedDarkTheme) 0f else 1f
+            val target = transitionTarget ?: committedDarkTheme
+            val end = if (target) 0f else 1f
+            if (transitionTarget == null) start else start + ((end - start) * revealProgress.value)
+        }
+    }
+
+    LaunchedEffect(isDarkTheme, committedDarkTheme, transitionTarget, canStartThemeReveal) {
+        if (transitionTarget == null && canStartThemeReveal && isDarkTheme != committedDarkTheme) {
+            transitionTarget = isDarkTheme
+        }
+    }
+
+    LaunchedEffect(transitionTarget, revealAnimation) {
+        val target = transitionTarget ?: return@LaunchedEffect
+        revealAnimation.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = 350,
+                easing = FastOutSlowInEasing
+            )
+        )
+        Snapshot.withMutableSnapshot {
+            committedDarkTheme = target
+            transitionTarget = null
+        }
+    }
+
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? Activity)?.window ?: return@SideEffect
+            window.statusBarColor = Color.Transparent.toArgb()
+            window.navigationBarColor = Color.Transparent.toArgb()
+        }
+    }
+
+    LaunchedEffect(transitionTarget, committedDarkTheme, revealProgress) {
+        val iconTheme = transitionTarget
+        if (iconTheme != null) {
+            snapshotFlow { revealProgress.value }.first { it >= 0.5f }
+        }
+        if (!view.isInEditMode) {
+            val window = (view.context as? Activity)?.window ?: return@LaunchedEffect
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.isAppearanceLightStatusBars = !(iconTheme ?: committedDarkTheme)
+            controller.isAppearanceLightNavigationBars = !(iconTheme ?: committedDarkTheme)
+        }
+    }
+
+    val requestThemeToggle = {
+        if (!isThemeTransitioning && canStartThemeReveal && isDarkTheme == committedDarkTheme) {
+            transitionTarget = !committedDarkTheme
+            onThemeToggle()
+        }
+    }
+
+    BackHandler(enabled = !isThemeTransitioning && !isEditPageShowing && (isComposerExpanded || isPlusMenuExpanded || isMultiSelectMode || activeSearch || anyDialogShowing || isFavoritesPage)) {
         when {
+            isComposerExpanded -> {
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+                isComposerExpanded = false
+            }
             isPlusMenuExpanded -> {
                 isPlusMenuExpanded = false
             }
@@ -222,6 +356,10 @@ fun OneLineNotesScreen(
     LaunchedEffect(selectedFilter) {
         selectedNoteIds.clear()
         isPlusMenuExpanded = false
+    }
+
+    LaunchedEffect(selectedFilter, searchQuery) {
+        listState.scrollToItem(0)
     }
 
     // Filtered Notes based on active filter and search query (derivedStateOf ensures immediate updates on item mutation)
@@ -295,12 +433,47 @@ fun OneLineNotesScreen(
         }
     }
 
-    CompositionLocalProvider(LocalTransientMessageSender provides showTransientMessage) {
-        Box(modifier = Modifier.fillMaxSize()) {
+    val renderAppUi: @Composable (Boolean, Boolean, Boolean, (Offset) -> Unit) -> Unit = {
+            renderedDarkTheme,
+            isRevealLayer,
+            themeToggleEnabled,
+            onThemeTogglePositioned ->
+        CompositionLocalProvider(LocalTransientMessageSender provides showTransientMessage) {
+        val screenSemantics = if (isThemeTransitioning) Modifier.clearAndSetSemantics {} else Modifier
+        Box(modifier = Modifier.fillMaxSize().then(screenSemantics)) {
+        val backdropLayer = rememberGraphicsLayer()
+        val blurredBackdropLayer = rememberGraphicsLayer()
+        var scaffoldOriginInRoot by remember { mutableStateOf(Offset.Zero) }
+        var composerBlurBounds by remember { mutableStateOf<Rect?>(null) }
+        val showComposer = !isComposerExpanded && !isFavoritesPage && !isSearchActive && !isMultiSelectMode
+        val density = LocalDensity.current
+        val blurRadiusPx = with(density) { 14.dp.toPx() }
+        val panelCornerRadiusPx = with(density) { 22.dp.toPx() }
+
+        SideEffect {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                blurredBackdropLayer.renderEffect = BlurEffect(
+                    radiusX = blurRadiusPx,
+                    radiusY = blurRadiusPx,
+                    edgeTreatment = TileMode.Clamp
+                )
+            }
+        }
+
         Scaffold(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding(),
+                .statusBarsPadding()
+                .onGloballyPositioned { coordinates ->
+                    val origin = coordinates.positionInRoot()
+                    if (scaffoldOriginInRoot != origin) scaffoldOriginInRoot = origin
+                }
+                .drawWithContent {
+                    backdropLayer.record {
+                        this@drawWithContent.drawContent()
+                    }
+                    drawLayer(backdropLayer)
+                },
             containerColor = BgDark,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             snackbarHost = {},
@@ -386,8 +559,10 @@ fun OneLineNotesScreen(
                         }
                     } else if (!isSearchActive) {
                         NormalHeader(
-                            isDarkTheme = isDarkTheme,
-                            onThemeToggle = onThemeToggle,
+                            isDarkTheme = renderedDarkTheme,
+                            onThemeToggle = requestThemeToggle,
+                            themeToggleEnabled = themeToggleEnabled && !isPlusMenuExpanded,
+                            onThemeTogglePositioned = onThemeTogglePositioned,
                             onSearchTrigger = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 isSearchActive = true
@@ -410,26 +585,6 @@ fun OneLineNotesScreen(
                             onSearchKeyboardDone = {
                                 keyboardController?.hide()
                             }
-                        )
-                    }
-                }
-            },
-            bottomBar = {
-                if (!isFavoritesPage && !isSearchActive && !isMultiSelectMode) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .imePadding()
-                            .navigationBarsPadding()
-                    ) {
-                        NotesComposer(
-                            inputTextFieldValue = inputTextFieldValue,
-                            onInputValueChange = { inputTextFieldValue = it },
-                            inputSpans = inputSpans,
-                            onSpansChange = { inputSpans = it },
-                            onSendNote = onSendNote,
-                            onNewFieldClick = { showNewFieldDialog = true },
-                            modifier = Modifier.onSizeChanged { composerHeightPx = it.height }
                         )
                     }
                 }
@@ -561,16 +716,23 @@ fun OneLineNotesScreen(
                 // Home Content Filter Control: [ All ] [ Notes ] [ Fields-Values ]
                 HomeFilterControl(
                     selectedFilter = selectedFilter,
-                    onFilterSelected = onFilterSelected
+                    onFilterSelected = onFilterSelected,
+                    scrollState = if (isRevealLayer) revealFilterScrollState else filterScrollState,
+                    isRevealLayer = isRevealLayer
                 )
 
                 NotesList(
                     displayedNotes = displayedNotes,
-                    listState = listState,
+                    listState = if (isRevealLayer) revealListState else listState,
                     selectedNoteIds = selectedNoteIds,
                     isMultiSelectMode = isMultiSelectMode,
                     isSearchActive = isSearchActive,
                     hasBottomFab = !isSearchActive && !isMultiSelectMode,
+                    bottomOverlayHeight = if (!isSearchActive && !isMultiSelectMode) {
+                        composerReservedHeight + 8.dp
+                    } else {
+                        0.dp
+                    },
                     onNoteClick = handleNoteClick,
                     onNoteLongClick = handleNoteLongClick,
                     onMonoTap = handleMonoTap,
@@ -603,7 +765,7 @@ fun OneLineNotesScreen(
                             Column(
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
-                                    .padding(end = 16.dp, bottom = 8.dp),
+                                    .padding(end = 16.dp, bottom = composerReservedHeight + 8.dp),
                                 horizontalAlignment = Alignment.End,
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -737,10 +899,56 @@ fun OneLineNotesScreen(
         }
     }
 
+        if (showComposer && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && composerBlurBounds != null) {
+            Canvas(modifier = Modifier.matchParentSize().zIndex(10f)) {
+                val panel = composerBlurBounds ?: return@Canvas
+                val localPanel = Rect(
+                    left = panel.left,
+                    top = panel.top,
+                    right = panel.right,
+                    bottom = panel.bottom
+                )
+                val panelPath = Path().apply {
+                    addRoundRect(RoundRect(localPanel, CornerRadius(panelCornerRadiusPx)))
+                }
+                blurredBackdropLayer.record {
+                    withTransform({
+                        translate(scaffoldOriginInRoot.x, scaffoldOriginInRoot.y)
+                    }) {
+                        drawLayer(backdropLayer)
+                    }
+                }
+                clipPath(panelPath) {
+                    drawLayer(blurredBackdropLayer)
+                }
+            }
+        }
+
+        if (showComposer) {
+            NotesComposer(
+                inputTextFieldValue = inputTextFieldValue,
+                onInputValueChange = { inputTextFieldValue = it },
+                inputSpans = inputSpans,
+                onSpansChange = { inputSpans = it },
+                onSendNote = onSendNote,
+                onExpand = {
+                    keyboardController?.hide()
+                    isComposerExpanded = true
+                },
+                onPanelBoundsChanged = { bounds -> composerBlurBounds = bounds },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .zIndex(20f)
+                    .onSizeChanged {
+                        if (!isRevealLayer) composerHeightPx = it.height
+                    }
+            )
+        }
+
         // Floating Snackbar Host Overlay
         val isComposerAndFabVisible = !isFavoritesPage && !isSearchActive && !isMultiSelectMode
-        val density = LocalDensity.current
-        val composerHeightDp = with(density) { composerHeightPx.toDp() }
         val snackbarBottomPadding = if (isComposerAndFabVisible) {
             (if (composerHeightPx > 0) composerHeightDp else 62.dp) + 64.dp
         } else {
@@ -760,7 +968,8 @@ fun OneLineNotesScreen(
         ) { snackbarData ->
             SwipeableSnackbar(
                 snackbarData = snackbarData,
-                onDismiss = { snackbarData.dismiss() }
+                onDismiss = { snackbarData.dismiss() },
+                state = swipeableSnackbarState
             )
         }
     }
@@ -1038,5 +1247,163 @@ fun OneLineNotesScreen(
             }
         )
     }
+    if (isComposerExpanded) {
+        ExpandedNoteComposer(
+            inputTextFieldValue = inputTextFieldValue,
+            onInputValueChange = { inputTextFieldValue = it },
+            inputSpans = inputSpans,
+            onSpansChange = { inputSpans = it },
+            onClose = {
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+                isComposerExpanded = false
+            },
+            onSendNote = {
+                onSendNote()
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+                isComposerExpanded = false
+            }
+        )
     }
+    }
+    }
+
+    ThemeRevealLayers(
+        currentDarkTheme = committedDarkTheme,
+        targetDarkTheme = transitionTarget,
+        revealProgress = revealProgress,
+        toggleProgress = toggleProgress,
+        canToggleTheme = canStartThemeReveal && !isThemeTransitioning,
+        renderAppUi = renderAppUi
+    )
+}
+
+private class CircularRevealClipShape(
+    private val center: Offset,
+    private val radius: Float
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val path = Path().apply {
+            addOval(
+                Rect(
+                    left = center.x - radius,
+                    top = center.y - radius,
+                    right = center.x + radius,
+                    bottom = center.y + radius
+                )
+            )
+        }
+        return Outline.Generic(path)
+    }
+}
+
+@Composable
+private fun ThemeRevealLayers(
+    currentDarkTheme: Boolean,
+    targetDarkTheme: Boolean?,
+    revealProgress: State<Float>,
+    toggleProgress: State<Float>,
+    canToggleTheme: Boolean,
+    renderAppUi: @Composable (Boolean, Boolean, Boolean, (Offset) -> Unit) -> Unit
+) {
+    var viewportOriginInWindow by remember { mutableStateOf(Offset.Zero) }
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
+    var toggleCenterInWindow by remember { mutableStateOf<Offset?>(null) }
+    val isTransitioning = targetDarkTheme != null
+    val revealCenter = toggleCenterInWindow?.minus(viewportOriginInWindow)
+        ?: Offset(viewportSize.width / 2f, viewportSize.height / 2f)
+    val revealRadius = calculateRevealRadius(revealCenter, viewportSize)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { coordinates ->
+                val origin = coordinates.positionInWindow()
+                if (viewportOriginInWindow != origin) viewportOriginInWindow = origin
+                if (viewportSize != coordinates.size) viewportSize = coordinates.size
+            }
+    ) {
+        val renderLayer: @Composable (Boolean, Boolean, Boolean) -> Unit = {
+                layerDarkTheme,
+                isRevealLayer,
+                toggleEnabled ->
+            OneLineNotesTheme(
+                darkTheme = layerDarkTheme,
+                animateThemeColors = false,
+                toggleProgress = toggleProgress,
+                manageSystemBars = false
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = BgDark
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxWidth()
+                                .windowInsetsTopHeight(WindowInsets.statusBars)
+                                .background(HeaderBg)
+                        )
+                        val onTogglePositioned: (Offset) -> Unit = if (isRevealLayer) {
+                            {}
+                        } else {
+                            { center -> toggleCenterInWindow = center }
+                        }
+                        renderAppUi(
+                            layerDarkTheme,
+                            isRevealLayer,
+                            toggleEnabled,
+                            onTogglePositioned
+                        )
+                    }
+                }
+            }
+        }
+
+        renderLayer(currentDarkTheme, false, canToggleTheme && !isTransitioning)
+
+        targetDarkTheme?.let { newTheme ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        clip = true
+                        shape = CircularRevealClipShape(
+                            center = revealCenter,
+                            radius = revealRadius * revealProgress.value
+                        )
+                    }
+            ) {
+                renderLayer(newTheme, true, false)
+            }
+
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clearAndSetSemantics { }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    )
+            )
+        }
+    }
+}
+
+private fun calculateRevealRadius(center: Offset, viewportSize: IntSize): Float {
+    val width = viewportSize.width.toFloat()
+    val height = viewportSize.height.toFloat()
+    return maxOf(
+        sqrt(center.x * center.x + center.y * center.y),
+        sqrt((width - center.x) * (width - center.x) + center.y * center.y),
+        sqrt(center.x * center.x + (height - center.y) * (height - center.y)),
+        sqrt((width - center.x) * (width - center.x) + (height - center.y) * (height - center.y))
+    ) + 2f
 }
