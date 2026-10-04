@@ -1,5 +1,6 @@
 package com.oneline.notes
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -69,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.oneline.notes.ui.theme.*
 
 // =============================================================================
@@ -196,10 +198,86 @@ fun SingleNoteOptionsBottomSheet(
                     color = Color.Transparent
                 ) {
                     Text(
-                        text = "Delete",
+                        text = "Move to bin",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
-                        color = AccentDanger,
+                        color = DestructiveAction,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Bin Note Options Bottom Sheet
+// =============================================================================
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BinNoteOptionsBottomSheet(
+    onDismiss: () -> Unit,
+    onRestore: () -> Unit,
+    onDeletePermanently: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = TextSecondary) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                text = "Options",
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                color = TextPrimary,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(SurfaceCard)
+            ) {
+                // 1. Restore
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onRestore() },
+                    color = Color.Transparent
+                ) {
+                    Text(
+                        text = "Restore",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextPrimary,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                    )
+                }
+
+                HorizontalDivider(color = BorderSubtle.copy(alpha = 0.5f), thickness = 0.8.dp)
+
+                // 2. Delete permanently
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onDeletePermanently() },
+                    color = Color.Transparent
+                ) {
+                    Text(
+                        text = "Delete permanently",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = DestructiveAction,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
                     )
                 }
@@ -1057,19 +1135,6 @@ fun PartialCopyDialog(
     }
 }
 
-@Composable
-fun PartialCopyDialog(
-    noteText: String,
-    onDismiss: () -> Unit,
-    onCopySnippet: (String) -> Unit
-) {
-    PartialCopyDialog(
-        note = NoteItem(text = noteText, type = NoteType.NORMAL),
-        onDismiss = onDismiss,
-        onCopySnippet = onCopySnippet
-    )
-}
-
 // =============================================================================
 // Field-Value Group Dialog (New and Edit)
 // =============================================================================
@@ -1254,6 +1319,73 @@ private fun FieldValueRow(
 }
 
 @Composable
+private fun FullScreenEditPage(
+    titleContent: @Composable RowScope.() -> Unit,
+    onClose: () -> Unit,
+    onSave: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            color = BgDark
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_close),
+                            contentDescription = "Close editor",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    titleContent()
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Surface(
+                        shape = CircleShape,
+                        color = PrimaryBlue,
+                        modifier = Modifier
+                            .height(40.dp)
+                            .clickable(onClick = onSave)
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Save",
+                                color = OnAccent,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                content()
+            }
+        }
+    }
+}
+
+@Composable
 fun FieldValueGroupDialog(
     isNew: Boolean,
     initialTitle: String,
@@ -1319,6 +1451,7 @@ fun FieldValueGroupDialog(
         errorMessage = null
     }
 
+    if (isNew) {
     AlertDialog(
         onDismissRequest = requestClose,
         containerColor = SurfaceDark,
@@ -1487,6 +1620,148 @@ fun FieldValueGroupDialog(
             }
         }
     )
+    } else {
+        BackHandler(enabled = !showDiscardConfirm, onBack = requestClose)
+        FullScreenEditPage(
+            onClose = requestClose,
+            onSave = {
+                val rawT = titleText.trim()
+                val validPairs = pairs.filter { it.field.isNotBlank() || it.value.isNotBlank() }
+                if (validPairs.isEmpty()) {
+                    errorMessage = "At least one Field or Value pair is required"
+                } else {
+                    val finalItems = validPairs.mapIndexed { idx, itm ->
+                        itm.copy(
+                            field = itm.field.trim(),
+                            value = itm.value.trim(),
+                            insertionOrder = idx
+                        )
+                    }
+                    onSave(rawT, finalItems)
+                }
+            },
+            titleContent = {
+                if (isEditingTitle) {
+                    BasicTextField(
+                        value = titleText,
+                        onValueChange = {
+                            titleText = it
+                            if (errorMessage != null) errorMessage = null
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(titleFocusRequester),
+                        textStyle = TextStyle(
+                            color = TextPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        singleLine = true,
+                        cursorBrush = SolidColor(BrightBlue),
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (titleText.isEmpty()) {
+                                    Text(
+                                        text = "Title",
+                                        color = TextMuted,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Normal
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                } else {
+                    Text(
+                        text = if (titleText.isNotBlank()) titleText else "Edit Field Note",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 19.sp,
+                        color = TextPrimary,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { isEditingTitle = true }
+                    )
+                }
+            },
+            content = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Field-Value Pairs",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        TextButton(
+                            onClick = { onAddPairAction() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "+ Add",
+                                color = BrightBlue,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    pairs.forEachIndexed { index, pair ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = SurfaceCard,
+                            border = BorderStroke(1.dp, BrightBlue)
+                        ) {
+                            Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                                FieldValueRow(
+                                    index = index,
+                                    pair = pair,
+                                    isLast = index == pairs.lastIndex,
+                                    shouldFocus = focusTargetIndex == index,
+                                    showRemove = pairs.size > 1,
+                                    onFieldChange = { newField ->
+                                        pairs[index] = pair.copy(field = newField)
+                                        if (errorMessage != null) errorMessage = null
+                                    },
+                                    onValueChange = { newVal ->
+                                        pairs[index] = pair.copy(value = newVal)
+                                        if (errorMessage != null) errorMessage = null
+                                    },
+                                    onRemove = {
+                                        if (pairs.size > 1) pairs.removeAt(index)
+                                    },
+                                    onAddNext = { onAddPairAction() }
+                                )
+                            }
+                        }
+                    }
+
+                    if (errorMessage != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = errorMessage.orEmpty(),
+                            color = DestructiveAction,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        )
+    }
 
     if (showDiscardConfirm) {
         DiscardConfirmDialog(
@@ -1687,6 +1962,7 @@ fun ListGroupDialog(
         errorMessage = null
     }
 
+    if (isNew) {
     AlertDialog(
         onDismissRequest = requestClose,
         containerColor = SurfaceDark,
@@ -1859,6 +2135,150 @@ fun ListGroupDialog(
             }
         }
     )
+    } else {
+        BackHandler(enabled = !showDiscardConfirm, onBack = requestClose)
+        FullScreenEditPage(
+            onClose = requestClose,
+            onSave = {
+                if (rows.isEmpty() || rows.first().value.isBlank()) {
+                    errorMessage = "Row 1 cannot be empty"
+                } else {
+                    var lastNonEmpty = rows.size - 1
+                    while (lastNonEmpty >= 0 && rows[lastNonEmpty].value.isBlank()) {
+                        lastNonEmpty--
+                    }
+                    if (lastNonEmpty < 0) {
+                        errorMessage = "At least one item is required"
+                    } else {
+                        val validRows = rows.subList(0, lastNonEmpty + 1).mapIndexed { idx, itm ->
+                            itm.copy(value = itm.value.trim(), insertionOrder = idx)
+                        }
+                        onSave(titleText.trim(), validRows)
+                    }
+                }
+            },
+            titleContent = {
+                if (isEditingTitle) {
+                    BasicTextField(
+                        value = titleText,
+                        onValueChange = {
+                            titleText = it
+                            if (errorMessage != null) errorMessage = null
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(titleFocusRequester),
+                        textStyle = TextStyle(
+                            color = TextPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        singleLine = true,
+                        cursorBrush = SolidColor(BrightBlue),
+                        decorationBox = { innerTextField ->
+                            Box {
+                                if (titleText.isEmpty()) {
+                                    Text(
+                                        text = "Title",
+                                        color = TextMuted,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Normal
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                } else {
+                    Text(
+                        text = if (titleText.isNotBlank()) titleText else "Edit List",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 19.sp,
+                        color = TextPrimary,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { isEditingTitle = true }
+                    )
+                }
+            },
+            content = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "List Items",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        TextButton(
+                            onClick = { onAddRowAction() },
+                            enabled = canAddRow,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "+ Add",
+                                color = if (canAddRow) BrightBlue else TextMuted,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        rows.forEachIndexed { index, rowItem ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = SurfaceCard,
+                                border = BorderStroke(1.dp, BrightBlue)
+                            ) {
+                                Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                                    ListRow(
+                                        index = index,
+                                        item = rowItem,
+                                        isLast = index == rows.lastIndex,
+                                        shouldFocus = focusTargetIndex == index,
+                                        showRemove = rows.size > 1,
+                                        onValueChange = { newVal ->
+                                            rows[index] = rowItem.copy(value = newVal)
+                                            if (errorMessage != null) errorMessage = null
+                                        },
+                                        onRemove = {
+                                            if (rows.size > 1) rows.removeAt(index)
+                                        },
+                                        onAddNext = { onAddRowAction() }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (errorMessage != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = errorMessage.orEmpty(),
+                            color = DestructiveAction,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        )
+    }
 
     if (showDiscardConfirm) {
         DiscardConfirmDialog(
@@ -1936,51 +2356,61 @@ fun EditNoteDialog(
         }
     }
 
-    AlertDialog(
-        onDismissRequest = requestClose,
-        containerColor = BgDark,
-        shape = RoundedCornerShape(28.dp),
-        title = {
+    BackHandler(enabled = !showDiscardConfirm, onBack = requestClose)
+    FullScreenEditPage(
+        onClose = requestClose,
+        onSave = {
+            val trimmed = textFieldValue.text.trim()
+            if (trimmed.isNotEmpty()) {
+                onSave(trimmed, currentSpans)
+            }
+        },
+        titleContent = {
             Text(
                 text = "Edit Message",
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary,
-                fontSize = 18.sp
+                fontSize = 18.sp,
+                modifier = Modifier.weight(1f)
             )
         },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                val editView = LocalView.current
-                val currentEditValue = rememberUpdatedState(textFieldValue)
-                val currentEditSpans = rememberUpdatedState(currentSpans)
+        content = {
+            val editView = LocalView.current
+            val currentEditValue = rememberUpdatedState(textFieldValue)
+            val currentEditSpans = rememberUpdatedState(currentSpans)
 
-                val editDialogTextToolbar = remember(editView) {
-                    MonoTextToolbar(
-                        view = editView,
-                        onMonoRequested = {
-                            val valNow = currentEditValue.value
-                            val sel = valNow.selection
-                            if (!sel.collapsed && sel.length > 0) {
-                                currentSpans = toggleMonospaceSpan(
-                                    valNow.text.length,
-                                    currentEditSpans.value,
-                                    sel.min,
-                                    sel.max
-                                )
-                                textFieldValue = valNow.copy(selection = sel)
-                            }
-                        },
-                        canApplyMono = {
-                            val sel = currentEditValue.value.selection
-                            !sel.collapsed && sel.length > 0
+            val editDialogTextToolbar = remember(editView) {
+                MonoTextToolbar(
+                    view = editView,
+                    onMonoRequested = {
+                        val valNow = currentEditValue.value
+                        val sel = valNow.selection
+                        if (!sel.collapsed && sel.length > 0) {
+                            currentSpans = toggleMonospaceSpan(
+                                valNow.text.length,
+                                currentEditSpans.value,
+                                sel.min,
+                                sel.max
+                            )
+                            textFieldValue = valNow.copy(selection = sel)
                         }
-                    )
-                }
+                    },
+                    canApplyMono = {
+                        val sel = currentEditValue.value.selection
+                        !sel.collapsed && sel.length > 0
+                    }
+                )
+            }
 
-                val currentMonoText = MonospaceText
-                val currentMonoBg = MonospaceBg
+            val currentMonoText = MonospaceText
+            val currentMonoBg = MonospaceBg
 
-                CompositionLocalProvider(LocalTextToolbar provides editDialogTextToolbar) {
+            CompositionLocalProvider(LocalTextToolbar provides editDialogTextToolbar) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
                     OutlinedTextField(
                         value = textFieldValue,
                         onValueChange = { newVal ->
@@ -1991,7 +2421,9 @@ fun EditNoteDialog(
                             }
                             textFieldValue = newVal
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
                         visualTransformation = remember(currentSpans, currentMonoText, currentMonoBg) {
                             VisualTransformation { text ->
                                 TransformedText(
@@ -2004,55 +2436,36 @@ fun EditNoteDialog(
                             focusedContainerColor = SurfaceCard,
                             unfocusedContainerColor = SurfaceCard,
                             focusedBorderColor = BrightBlue,
-                            unfocusedBorderColor = BorderSubtle,
+                            unfocusedBorderColor = BrightBlue,
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary,
                             cursorColor = BrightBlue
                         ),
                         shape = RoundedCornerShape(12.dp)
                     )
-                }
 
-                // Monospace formatted preview
-                if (currentSpans.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "Monospace Preview:",
-                        fontSize = 11.sp,
-                        color = TextSecondary
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MonospaceBg,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp)
-                    ) {
+                    if (currentSpans.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = buildMonospaceAnnotatedString(textFieldValue.text, currentSpans, monoColor = MonospaceText, monoBackground = MonospaceBg),
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(8.dp)
+                            text = "Monospace Preview:",
+                            fontSize = 11.sp,
+                            color = TextSecondary
                         )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MonospaceBg,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                        ) {
+                            Text(
+                                text = buildMonospaceAnnotatedString(textFieldValue.text, currentSpans, monoColor = MonospaceText, monoBackground = MonospaceBg),
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
                     }
                 }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val trimmed = textFieldValue.text.trim()
-                    if (trimmed.isNotEmpty()) {
-                        onSave(trimmed, currentSpans)
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
-            ) {
-                Text("Save", color = OnAccent)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = requestClose) {
-                Text("Cancel", color = TextSecondary)
             }
         }
     )
@@ -2084,7 +2497,7 @@ fun DeleteConfirmDialog(
         shape = RoundedCornerShape(28.dp),
         title = {
             Text(
-                text = if (count == 1) "Delete 1 note?" else "Delete $count notes?",
+                text = if (count == 1) "Move to bin?" else "Move $count notes to bin?",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 24.sp,
                 color = TextPrimary
@@ -2092,7 +2505,7 @@ fun DeleteConfirmDialog(
         },
         text = {
             Text(
-                text = if (count == 1) "Are you sure you want to delete this note?" else "Are you sure you want to delete these $count notes?",
+                text = if (count == 1) "Are you sure you want to move this note to the bin?" else "Are you sure you want to move these $count notes to the bin?",
                 color = TextSecondary,
                 fontSize = 16.sp,
                 lineHeight = 22.sp,
@@ -2102,7 +2515,7 @@ fun DeleteConfirmDialog(
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(
-                    text = "Delete",
+                    text = "Move to bin",
                     color = DestructiveAction,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
@@ -2113,7 +2526,60 @@ fun DeleteConfirmDialog(
             TextButton(onClick = onDismiss) {
                 Text(
                     text = "Cancel",
-                    color = BrightBlue,
+                    color = TextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    )
+}
+
+// =============================================================================
+// Empty Bin Confirmation Dialog
+// =============================================================================
+@Composable
+fun EmptyBinConfirmDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(28.dp),
+        title = {
+            Text(
+                text = "Empty Bin?",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp,
+                color = TextPrimary
+            )
+        },
+        text = {
+            Text(
+                text = "All notes in the bin will be permanently deleted.",
+                color = TextSecondary,
+                fontSize = 16.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.Normal
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    text = "Empty Bin",
+                    color = DestructiveAction,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    text = "Cancel",
+                    color = TextPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -2147,7 +2613,7 @@ fun DiscardConfirmDialog(
             TextButton(onClick = onConfirm) {
                 Text(
                     text = "Confirm",
-                    color = DestructiveAction,
+                    color = BrightBlue,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
                 )

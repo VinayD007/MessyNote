@@ -92,7 +92,7 @@ fun buildNoteBubbleAnnotatedString(
             )
         }
 
-        // URL spans: Underline + accent color #004296
+        // URL spans use the current theme's accent color.
         for (link in urlSpans) {
             addStringAnnotation(
                 tag = "URL",

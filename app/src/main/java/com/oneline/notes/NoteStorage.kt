@@ -93,7 +93,8 @@ fun parseNotesFromJson(jsonString: String): ParseNotesResult {
                 title = title ?: if (type == NoteType.FIELD_VALUE && items.isNotEmpty()) items.first().field else null,
                 fieldItems = items,
                 listItems = listRows,
-                favorite = obj.optBoolean("favorite", false)
+                favorite = obj.optBoolean("favorite", false),
+                isDeleted = obj.optBoolean("isDeleted", false)
             )
             list.add(note)
         } catch (_: Exception) {
@@ -127,6 +128,7 @@ fun notesToJson(notes: List<NoteItem>): String {
             put("spans", spansToJson(note.spans))
             put("type", note.type.name)
             put("favorite", note.favorite)
+            put("isDeleted", note.isDeleted)
             if (note.title != null) put("title", note.title)
             if (note.fieldItems.isNotEmpty()) {
                 val itemsArray = JSONArray()
